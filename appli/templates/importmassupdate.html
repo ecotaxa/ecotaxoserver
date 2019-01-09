@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block body %}
+  <style>
+  #tbl td {padding: 5px;}
+  </style>
+  <div style="padding: 10px;">
+
+  <form id="f1" enctype="multipart/form-data" action="/doimportmassupdate/" method="post">
+    <table id="tbl">
+      <tr>
+        <td colspan="2">This import page allows to do mass update of existing taxonomy elements.<br>
+        To import new elements you must use the taxonomy import.</td>
+      </tr>
+      <tr>
+        <td><label for="fichier">File to import : </label></td>
+        <td><input id="fichier" name="fichier" type="file" style="width: 400px" class="form-control"></td>
+      </tr>
+      <tr>
+        <td colspan="2"><button type="submit" class="btn btn-primary"><i class="fa fa-upload"></i> Load mass update file</button></td>
+
+      </tr>
+    </table>
+
+
+
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,206 @@
+/*Extracted using https://google-webfonts-helper.herokuapp.com/ */
+/* source-sans-pro-300 - latin */
+@font-face {
+  font-family: 'Source Sans Pro';
+  font-style: normal;
+  font-weight: 300;
+  src: url('/static/fonts/source-sans-pro-v9-latin-300.eot'); /* IE9 Compat Modes */
+  src: local('Source Sans Pro Light'), local('SourceSansPro-Light'),
+       url('/static/fonts/source-sans-pro-v9-latin-300.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
+       url('/static/fonts/source-sans-pro-v9-latin-300.woff2') format('woff2'), /* Super Modern Browsers */
+       url('/static/fonts/source-sans-pro-v9-latin-300.woff') format('woff'), /* Modern Browsers */
+       url('/static/fonts/source-sans-pro-v9-latin-300.ttf') format('truetype'), /* Safari, Android, iOS */
+       url('/static/fonts/source-sans-pro-v9-latin-300.svg#SourceSansPro') format('svg'); /* Legacy iOS */
+}
+/* source-sans-pro-regular - latin */
+@font-face {
+  font-family: 'Source Sans Pro';
+  font-style: normal;
+  font-weight: 400;
+  src: url('/static/fonts/source-sans-pro-v9-latin-regular.eot'); /* IE9 Compat Modes */
+  src: local('Source Sans Pro'), local('SourceSansPro-Regular'),
+       url('/static/fonts/source-sans-pro-v9-latin-regular.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
+       url('/static/fonts/source-sans-pro-v9-latin-regular.woff2') format('woff2'), /* Super Modern Browsers */
+       url('/static/fonts/source-sans-pro-v9-latin-regular.woff') format('woff'), /* Modern Browsers */
+       url('/static/fonts/source-sans-pro-v9-latin-regular.ttf') format('truetype'), /* Safari, Android, iOS */
+       url('/static/fonts/source-sans-pro-v9-latin-regular.svg#SourceSansPro') format('svg'); /* Legacy iOS */
+}
+/* source-sans-pro-600 - latin */
+@font-face {
+  font-family: 'Source Sans Pro';
+  font-style: normal;
+  font-weight: 600;
+  src: url('/static/fonts/source-sans-pro-v9-latin-600.eot'); /* IE9 Compat Modes */
+  src: local('Source Sans Pro Semibold'), local('SourceSansPro-Semibold'),
+       url('/static/fonts/source-sans-pro-v9-latin-600.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
+       url('/static/fonts/source-sans-pro-v9-latin-600.woff2') format('woff2'), /* Super Modern Browsers */
+       url('/static/fonts/source-sans-pro-v9-latin-600.woff') format('woff'), /* Modern Browsers */
+       url('/static/fonts/source-sans-pro-v9-latin-600.ttf') format('truetype'), /* Safari, Android, iOS */
+       url('/static/fonts/source-sans-pro-v9-latin-600.svg#SourceSansPro') format('svg'); /* Legacy iOS */
+}
+.rm5 { margin-right: 5px; }
+	
+code {
+	color: #555;
+	/* no not color in red by default */
+}
+
+* {
+	font-family: "Source Sans Pro", Helvetica, Sans;
+}
+/* Object page */
+.tab-pane {
+	font-size: 90%;
+}
+
+/* Nicer project list table */
+.projectsList td {
+	vertical-align: baseline !important;
+}
+.table-verycondensed td,
+.table-verycondensed tr,
+.table-verycondensed th {
+	padding-top: 2px    !important;
+	padding-bottom: 1px !important;
+}
+/* Add (i) after help labels */
+.help {
+	font-weight: bold;
+}
+.help:after {
+  font-family: "Glyphicons Halflings";
+	font-size: 80%;
+  content:" \e086";
+}
+/* Topbar, with tools */
+#topbar .form-control{
+	height: 22px;
+	padding: 0px;
+}
+#topbar label {
+	font-size: 100%;
+	font-weight: normal;
+}
+
+
+
+.ui-datepicker {  z-index: 4 !important; } /*Fix issue of Slider button over calendar on filter on FFX*/
+
+.taxodrop_hover { background: #5cb85c; }
+.activeTaxo { background: #BCBCBC; }
+
+/****  Gestion Popup  ******/
+.At2PopupMask {
+  position:absolute; top : 0; left: 0; width: 100%; height: 100%;
+    background-color:#000; opacity: 0.7;
+    display:none;
+}
+.At2PopupWindowContainer {
+    position:absolute; top : 0; left: 0; width: 100%; height: 100%;
+    display:none;
+}
+.At2PopupWindow {
+  position:relative;
+  background-color:white;  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,.5);
+    -webkit-box-shadow: 0 3px 9px rgba(0,0,0,.5);
+    box-shadow: 0 3px 9px rgba(0,0,0,.5);
+  margin: 20px auto; min-width: 300px; width: 700px;
+}
+.At2PopupHeader {border-top-left-radius: 6px;border-top-right-radius: 6px; padding:6px 10px ;
+    font-weight: bold;
+    border-bottom: 1px #eee solid;}
+.At2PopupContent {  padding:10px; }
+.ui-datepicker { z-index: 10000 !important; } /*Requis pour fonctionnement dans une popup*/
+.ui-front { z-index: 10000 !important; } /*Requis pour fonctionnement dans une popup de autocomplete*/
+/****  BootStrap OverLoad  ******/
+.form-control { height: 24px; padding: 2px 6px;display: inline;}
+input[type='checkbox'].form-control { width: 20px;  vertical-align: middle; margin: 0}
+.input-group .input-group-btn .btn,.input-group-addon { height: 24px; padding: 1px 6px;}
+.panel {width:95%;margin-bottom: 2px;}
+.panel-body,.panel-heading,.panel-footer { padding: 5px 10px; }
+
+.btn-gris {
+  color: #ffffff;
+  background-color: #ADADAD;
+  border-color: #5E5E61;
+}
+.btn-gris:hover,.btn-gris:focus,.btn-gris:active,.btn-gris.active,.open .dropdown-toggle.btn-gris {
+  color: #ffffff;
+  background-color: #707070;
+  border-color: #5E5E61;
+}
+.btn-gris:active, .btn-gris.active,.open .dropdown-toggle.btn-gris {
+  background-image: none;
+}
+.btn-gris.disabled, .btn-gris[disabled],fieldset[disabled] .btn-gris,.btn-gris.disabled:hover,.btn-gris[disabled]:hover,
+fieldset[disabled] .btn-gris:hover, .btn-gris.disabled:focus,.btn-gris[disabled]:focus,fieldset[disabled] .btn-gris:focus,
+.btn-gris.disabled:active, .btn-gris[disabled]:active,fieldset[disabled] .btn-gris:active,.btn-gris.disabled.active,
+.btn-gris[disabled].active, fieldset[disabled] .btn-gris.active {
+  background-color: #89888A;
+  border-color: #5E5E61;
+}
+
+@media print {
+  a[href]:after {
+    content: none !important;
+  }
+}
+
+.PaddedTd3 td {padding: 3px;}
+
+
+input.parsley-success,
+select.parsley-success,
+textarea.parsley-success {
+  color: #468847;
+  background-color: #DFF0D8;
+  border: 1px solid #D6E9C6;
+}
+
+input.parsley-error,
+select.parsley-error,
+textarea.parsley-error {
+  color: #B94A48;
+  background-color: #F2DEDE;
+  border: 1px solid #EED3D7;
+}
+
+.parsley-errors-list {
+  margin: 2px 0 3px;
+  padding: 0;
+  list-style-type: none;
+  font-size: 0.9em;
+  line-height: 0.9em;
+  opacity: 0;
+  color: red;
+  transition: all .3s ease-in;
+  -o-transition: all .3s ease-in;
+  -moz-transition: all .3s ease-in;
+  -webkit-transition: all .3s ease-in;
+}
+
+.parsley-errors-list.filled {
+  opacity: 1;
+}
+
+/********************************/
+table.Grille{
+   border-color:#888;
+   border-width:1px;
+   border-style:solid;
+   border-collapse:collapse;
+}
+table.Grille td,table.Grille th{
+   border-width:1px;
+   border-style:solid;
+   border-color:#888;
+   padding: 2px 3px 2px 3px;
+}
+/********************************/
+.required:after{
+	content: "*";
+	font-size: 10pt;
+	font-weight: bold;
+	color: red;
+}

@@ -1,0 +1,41 @@
+{% import 'macro.html' as M  %}
+<style>
+  #tblviewtaxon {}
+  #tblviewtaxon th {width: 100px;font-weight: normal;background-color: #EEE;}
+  #tblviewtaxon td {word-break: break-all;}
+  #At2PopupWindow0 .At2PopupWindow {width: 1000px;}
+</style>
+<table class="table table-bordered" id="tblviewtaxon">
+  <tr>
+    <th>ID</th><td>{{ taxon.id }}</td><th>Parent ID</th><td>{{ taxon.parent_id }} {{ taxon.parentname }}</td>
+    <th>Type</th><td>{{ g.TaxoType[taxon.taxotype] }}</td>
+  </tr>
+  <tr>  <th>Name</th><td colspan="5">{{ taxon.name }}</td></tr>
+  <tr>  <th>Display Name</th><td colspan="5">{{ taxon.display_name }}</td></tr>
+  <tr>  <th>Tree</th><td colspan="5">{{ taxon.tree }}</td></tr>
+
+  <tr>
+    <th>Source ID</th><td>{{ taxon.id_source or ''}}</td>
+    <th>Source URL</th><td colspan="3">{{ (('<a href='|safe+(taxon.source_url|tojson)+'>'|safe) +taxon.source_url+'</a>'|safe) if taxon.source_url else '' }}</td></tr>
+  <tr><th>Source Desc</th><td colspan="5">{{ M.NL2BR (taxon.source_desc) }}  </td></tr>
+  <tr>
+    <th>Creation date</th><td>{{ taxon.creationdatetimefmt or ''}}</td>
+    <th>By</th><td colspan="3">{{ ('<a href="mailto:'+taxon.creator_email+'">'+taxon.creator_email+'</a>')|safe if taxon.creator_email else '' }}</td></tr>
+  <tr>
+    <th>Last update</th><td>{{ taxon.lastupdate_datetime or ''}}</td>
+    <th>From instance</th><td colspan="3">{{ taxon.id_instance or ''}} {{ ('<a href="'+taxon.inst_url+'">'+taxon.inst_name+'</a>')|safe if taxon.inst_name else '' }}</td></tr>
+  <tr>
+    <th>Status</th><td>{{ g.TaxoStatus[taxon.taxostatus] or ''}}</td>
+    <th>Rename To</th><td colspan="3">{{ taxon.rename_to or ''}} {{ taxon.rename_to_name or ''}} </td></tr>
+
+</table>
+<table style="width: 100%">
+  <tr><td><button type="button" class="btn btn-primary" onclick="EditEl('{{ taxon.id }}')"><i class="fa fa-pencil-alt"></i> Edit Taxon</button></td>
+    <td style="text-align: right"><button type="button" onclick="At2PopupClose(0);" class="btn btn-gris"><i class="fa fa-times"></i> Close</button></td></tr>
+</table>
+<script>
+  function EditEl(taxoid) {
+    $('.At2PopupContent').load('/browsetaxoeditpopup/'+taxoid);
+  }
+
+</script>

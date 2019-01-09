@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+{% macro input(name, value='', smcol='2', type='text', size=20, extra="") -%}
+    <div class="col-sm-{{ smcol }}">
+        <input type="{{ type }}"  class="form-control" id="{{ name }}" name="{{ name }}" value="{{ value|e }}" size="{{ size }}" {{ extra }}>
+    </div>
+{%- endmacro %}
+
+{% macro label(txt, smcol='2') -%}
+     <label class="col-sm-{{ smcol }} control-label">{{ txt }}</label>
+{%- endmacro %}
+
+<html>
+<head lang="en">
+<link rel="stylesheet" type="text/css" href="/static/DataTables1.10.18/Bootstrap-3.3.7/css/bootstrap.min.css"/>
+    <link rel=stylesheet type=text/css href="{{ url_for('static', filename='jquery-ui/jquery-ui.min.css') }}">
+    <link rel="stylesheet" href="/static/fontawesome-free-5.5.0-web/css/all.min.css" type="text/css" />
+    <link rel="stylesheet" href="/static/ecotaxa.css" type="text/css" />
+    <link rel=stylesheet type=text/css href="{{ url_for('static', filename='select2_405/css/select2.css') }}">
+    <script src="{{ url_for('static', filename='jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='jquery-ui/jquery-ui.min.js') }}"></script>
+<script type="text/javascript" src="/static/DataTables1.10.18/Bootstrap-3.3.7/js/bootstrap.min.js"></script>
+    <script src="{{ url_for('static', filename='select2_405/js/select2.full.js') }}"></script>
+    <script src="{{ url_for('static', filename='common.js') }}"></script>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+</head>
+<body>
+
+
+<div id="divheadinfo" class="headinfo">
+<div class="headinfo panel panel-default">  <div class="panel-body" style="padding: 1px 5px 1px 5px;">
+<table width="100%"><tr>
+    <td width="192px"><a href="/"><img src="/static/logo_ecotaxoserver.png" style="margin: 5px 3px;"></a></td>
+
+    <td>{{ g.headcenter |safe }}{% block headcenter %}{% endblock %}</td>
+    <td align="right" width="300px">
+        {% if not  current_user.is_authenticated %}
+            Not logged ( <a href="{{ url_for_security('login') }}">log in</a> )
+        {% else %}
+            {%  if g.tasksummary %} <a href="/Task/listall">
+            {%  if g.tasksummary.Question  %}<span class="label label-warning">Question : {{g.tasksummary['Question']}}</span>{% endif %}
+            {%  if g.tasksummary.Running  %}<span class="label label-info">Run : {{g.tasksummary['Running']}}</span>{% endif %}
+            {%  if g.tasksummary.Error  %}<span class="label label-danger">Error :{{g.tasksummary['Error']}}</span>{% endif %}
+            {%  if g.tasksummary.Done  %}<span class="label label-success">Done :{{g.tasksummary['Done']}}</span>{% endif %}</a><br>{% endif %}
+            {{ current_user.name }} (<a href="{{ url_for_security('logout') }}">log out</a>)
+{% if g.menu %}
+    <br><div class="btn-group" style="width:100px;margin-right: 10px">
+    <button type="button" class="btn btn-default"  data-toggle="dropdown">Action</button>
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-expanded="false">
+        <span class="caret"></span>
+        <span class="sr-only">Toggle Dropdown</span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      {%   for m in g.menu %}
+          {% if m[1]=="SEP"%}
+            <li class="divider"></li>
+          {% else %}
+            <li><a href="{{ m[0] }}">{{ m[1] }}</a></li>
+          {% endif %}
+      {%  endfor %}
+  </ul>
+</div>
+{% endif %} {# If menu #}
+{% endif %}  {# If Authenticated #}
+    </td>
+</tr></table>
+</div></div>
+  {% for message in get_flashed_messages(true) %}
+    <div class="alert alert-{{ message[0]|replace("message","info")|replace("error","danger") }} alert-dismissible" role="alert" >{{ message[1] }}</div>
+  {% endfor %}
+    {{ header|safe }}
+</div>{# headinfo #}
+<!-- Main body -->
+<div id="bodydiv" {% if g.bodydivmargin %} style="margin:{{ g.bodydivmargin }};" {% endif %}>
+{% block body %}{% endblock %}
+    {{ bodycontent|safe }}
+</div>
+{% if g.google_analytics_id and g.cookieGAOK=='Y' %}
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+  ga('create', '{{  g.google_analytics_id }} ', 'auto');
+  ga('set', 'anonymizeIp', true);
+  ga('send', 'pageview');
+</script>
+{% endif %}
+
+</body>
+</html>
