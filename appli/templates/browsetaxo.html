@@ -1,14 +1,6 @@
 {% extends "layout.html" %}
 {% block body %}
-{#
-<link rel="stylesheet" href="../static/DataTables1.10.18/datatables.css">
-<script src="../static/DataTables1.10.18/datatables.js"></script>
-#}
-
-{#<link rel="stylesheet" type="text/css" href="../static/DataTables1.10.18/Bootstrap-3.3.7/css/bootstrap.min.css"/>#}
 <link rel="stylesheet" type="text/css" href="../static/DataTables1.10.18/DataTables-1.10.18/css/dataTables.bootstrap.min.css"/>
-
-{#<script type="text/javascript" src="../static/DataTables1.10.18/Bootstrap-3.3.7/js/bootstrap.min.js"></script>#}
 <script type="text/javascript" src="../static/DataTables1.10.18/DataTables-1.10.18/js/jquery.dataTables.min.js"></script>
 <script type="text/javascript" src="../static/DataTables1.10.18/DataTables-1.10.18/js/dataTables.bootstrap.min.js"></script>
 
@@ -16,7 +8,7 @@
 <link rel="stylesheet" type="text/css" href="../static/DataTables1.10.18/Buttons-1.5.4/css/buttons.bootstrap.css">
 <script src="../static/DataTables1.10.18/Buttons-1.5.4/js/dataTables.buttons.min.js"></script>
 <script src="../static/DataTables1.10.18/Buttons-1.5.4/js/buttons.bootstrap.js"></script>
-<script src="../static/DataTables1.10.18/JSZip-2.5.0/jszip.min.js"></script>
+{#<script src="../static/DataTables1.10.18/JSZip-2.5.0/jszip.min.js"></script>#}
 <script src="../static/DataTables1.10.18/Buttons-1.5.4/js/buttons.html5.min.js"></script>
 
 
@@ -28,15 +20,20 @@ table.dataTable thead .sorting:after, table.dataTable thead .sorting_asc:after, 
 { bottom: 2px;}
 #tbl tbody td:nth-child(1){cursor: pointer;}
 #tbl tbody td:nth-child(2){cursor: pointer;}
-#tbl tbody td:nth-child(3){cursor: pointer;}
-#tbl tbody td:nth-child(9){word-break: break-all;}
+#tbl tbody td:nth-child(3){cursor: pointer;color: #2b669a;}
+#tbl tbody td:nth-child(9){white-space: nowrap;}
+#tbl tbody td:nth-child(10){word-break: break-all;}
 .TreeMiddle {display: none}
 .TreeMiddle,.TreeMiddleBtn {text-decoration: underline;cursor: pointer;}
 .TreeMiddleBtn:after {content: "...";}
 #tbl_wrapper .btn-group {margin-right: 10px}
 </style>
-
-Clic on ID and ParentID to set Parent filter. Click on display name to show and edit entry. <a href="?">Clear filter</a>
+List of taxonomy administrators :
+{% for A in g.AdminLists %}
+  {% if not loop.first %}- {% endif %}<a href="mailto:{{ A.email }}?subject=EcotaxoServer%20help%20request">{{ A.name }}</a>
+  {% endfor %} <br>
+Clic on ID and ParentID to set Parent filter. Click on display name to show and edit entry.
+  <a href="?" class="btn btn-primary btn-xs"><i class="fas fa-eraser"></i> Clear filter</a>
 <table id="tbl" style="width:100%" class="table table-striped table-bordered" >
 <thead>
   <tr><td>ID</td><td>Parent ID</td><td>Display name</td><td>Type</td><td>Status</td>
@@ -64,7 +61,8 @@ $(document).ready(function() {
         fixedHeader: true,
         deferLoading: {{nbrtaxon}},
         dom: '<"top">rt<"bottom"B i p><"clear">',
-        buttons: ['copy', 'csv', 'excel',{text:'Full TSV Export'
+{#        buttons: ['copy', 'csv', 'excel',{text:'Full TSV Export'#}
+        buttons: ['copy',{text:'Full TSV Export'
               ,action: function ( e, dt, node, config ) { window.location='/browsetaxotsvexport/'; } }],
         processing: true,
         serverSide: true,
@@ -106,19 +104,14 @@ $(document).ready(function() {
       var taxoid=$(this).closest('tr').find('td:nth-child(1)').text();
 {#      At2Confirm("View taxon "+taxoid,"content",{onok:function(){console.log('ok');}})#}
       At2PopupWaitOpenLoad(0,"/browsetaxoviewpopup/"+taxoid,"View taxon "+taxoid);
-    });
-    $('#tbl tbody').on('click','td:nth-child(1),td:nth-child(2)',function () {
+    })
+    .on('click','td:nth-child(1),td:nth-child(2)',function () {
       var taxoid=$(this).text();
-      if(taxoid=='') taxoid='0';
+      if(taxoid==='') taxoid='0';
       $('.dataTables_scrollHead thead tr:eq(1) td:nth-child(1) input').val('').change();
       $('.dataTables_scrollHead thead tr:eq(1) td:nth-child(2) input').val(taxoid).change();
-    });
-{#    $('#tbl tbody').on('click','td:nth-child(2)',function () {#}
-{#      var taxoid=$(this).text();#}
-{#      $('.dataTables_scrollHead thead tr:eq(1) td:nth-child(2) input').val('').change();;#}
-{#      $('.dataTables_scrollHead thead tr:eq(1) td:nth-child(1) input').val(taxoid).change();#}
-{#    });#}
-    $('#tbl tbody').on('click','.TreeMiddle,.TreeMiddleBtn',function () {
+    })
+    .on('click','.TreeMiddle,.TreeMiddleBtn',function () {
       $(this).closest('td').find('.TreeMiddle,.TreeMiddleBtn').toggle();
     });
 } );

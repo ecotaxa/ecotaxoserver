@@ -1,0 +1,118 @@
+<style type="text/css" media="screen">
+	.home-block {
+		margin-bottom: 30px;
+		margin-top: 30px;
+	}
+	#hero-text {
+		text-align: center;
+		font-size: 150%;
+		font-weight: 100;
+		font-style: italic;
+	}
+	#illustration {
+	}
+	#logos {
+		text-align: center;
+		font-size: 110%;
+		font-weight: 100;
+	}
+	#logos img {
+		opacity: 0.5;
+	}
+	#logos a:hover img {
+		opacity: 1;
+	}
+	#instructions {
+		
+	}
+</style>
+
+<!-- Hero text -->
+<div class="row home-block" id="hero-text">
+	<div class="col-sm-12">
+		EcoTaxa is a web application dedicated to the visual exploration and the taxonomic annotation of images that illustrate the beauty of planktonic biodiversity.<br>
+    You are on the Taxonomy centralisation server, you can check for existing instances by browsing EcoTaxa instances below, or try the LOV instances <a href="https://ecotaxa.obs-vlfr.fr/">here</a>
+	</div>
+</div>
+
+<!-- Illustration -->
+<div class="row home-block" id="illustration">
+	<div class="col-sm-12">
+		<img src="/static/home/montage_plankton.jpg" width="100%" alt="plankton">
+	</div>
+</div>
+
+<!-- Logos -->
+<div class="row home-block" id="logos">
+  <div class="col-sm-3">
+  	<p><a href="http://www.obs-vlfr.fr" title="&gt; - Observatoire Oceanologique de Villefranche sur Mer"><img src="/static/home/logo-oov-t-v8-5.png" height="80" alt="Logo Oov T V8 5"><br>
+		Observatoire Oceanologique de Villefranche-sur-mer</a></p>
+  </div>
+  <div class="col-sm-3">
+  	<p><a href="http://www.sb-roscoff.fr" title="Station Biologique de Roscoff - CNRS UPMC - Roscoff France"><img src="/static/home/logo_roscoff.png" height="80" alt="Logo Roscoff"><br>Station Biologique de Roscoff</a></p>
+  </div>
+  <div class="col-sm-3">
+		<p><a href="http://www.oceanomics.eu" title="Welcome to Oceanomics, understand the richness of oceanic plankton"><img src="/static/home/oceanomics.png" height="80" alt="Oceanomics Logo Horizontal"><br>Oceanomics</a></p>
+	</div>
+  <div class="col-sm-3">
+		<p><a href="http://face-foundation.org/partner-university-fund/" title="Partner University Fund"><img src="/static/home/logo_puf_180.png" height="80" alt="PUF logo"><br>Partner University Fund</a></p>
+	</div>
+</div>
+
+
+<div class="row" id="homeSelectors" style="margin-top: 20px; margin-bottom: 20px;">
+	<div class="col-sm-6">
+			<a href="/browsetaxo/" class="btn btn-primary btn-lg btn-block">Browse Taxonomy</a>
+	</div>
+	<div class="col-sm-6">
+			<a href="/browseinstance/" class="btn btn-primary btn-lg  btn-block">Browse EcoTaxa instances</a>
+	</div>
+</div>
+
+
+
+<div class="row" id="instructions">
+
+	<!-- For browsetaxo -->
+	<div class="col-sm-6">
+		<p>To access EcoTaxa Taxonomy and statistics.</p>
+
+	</div>
+
+	<!-- For browseinstance -->
+	<div class="col-sm-6" >
+		<p>To access EcoTaxa instance list and statistics.</p>
+	</div>
+
+
+</div>
+<table>
+  <tr>
+    <td><img src="/static/home/ecotaxoserverarchi.png"></td>
+    <td style="vertical-align: middle">
+      <p style="font-weight: bold;font-size: large;">EcotaxoServer Architecture and process</p>
+      Taxonomy is managed in a centralized manner on EcotaxoServer.<br>
+Below a description of the taxa lifecycle :
+<ul>
+  <li>New taxa are created through local Ecotaxa instances by project managers directly on the EcotaxoServer.</li>
+<li>Newly created taxa are in "Not-reviewed" status and are visible in all instances.</li>
+<li>Periodically newly created taxa are reviewed then become Active.</li>
+  <!--
+{#<li>Newly created taxa are in "Not-reviewed" status and are visible only on the original Ecotaxa Instance.</li>#}
+{#<li>Periodically newly created taxa are reviewed then become Active and are visible in all instances.</li>#}
+-->
+<li>The periodic review may also cause some taxon become deprecated, they will then appear with "(deprecated) " on their name.</li>
+<li>When possible deprecated taxa will be tagged to be renamed by a new taxon automatically.</li>
+<li>Once a deprecated is not used anymore in any instance, it will be destroyed.</li>
+</ul>
+Ecotaxa instances will synchronize periodically.<br>
+      <a href="https://unieuk.org/project/" target="_blank">UniEuk</a> update are done manualy by EcoTaxoServer administrators
+</td>
+  </tr>
+</table>
+<div style="font-size: 80%;margin-top: 30px;">
+
+<p>To download EcoTaxa and install the application, email <a href="mailto:&#x6D;&#x61;&#x72;&#x63;&#x2E;&#x70;&#x69;&#x63;&#x68;&#x65;&#x72;&#x61;&#x6C;&#x40;&#x6F;&#x62;&#x73;&#x2D;&#x76;&#x6C;&#x66;&#x72;&#x2E;&#x66;&#x72;">&#x6D;&#x61;&#x72;&#x63;&#x2E;&#x70;&#x69;&#x63;&#x68;&#x65;&#x72;&#x61;&#x6C;&#x40;&#x6F;&#x62;&#x73;&#x2D;&#x76;&#x6C;&#x66;&#x72;&#x2E;&#x66;&#x72;</a></p>
+<p>If you use EcoTaxa in your work, we would appreciate that you cite it as: Picheral M, Colin S, Irisson J-O. EcoTaxa, a tool for the taxonomic classification of images. <a href="http://ecotaxa.obs-vlfr.fr">http://ecotaxa.obs-vlfr.fr</a></p>
+<p>Software developed by Laurent Navarro (<a href="http://www.altidev.com">Altidev</a>)</p>
+</div>

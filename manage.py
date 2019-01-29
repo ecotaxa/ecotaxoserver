@@ -3,8 +3,8 @@
 from flask_script import Manager
 from flask_security.utils import encrypt_password
 from flask_migrate import Migrate, MigrateCommand
-from appli import db,user_datastore,database,app,g
-import shutil,os
+from appli import db,user_datastore,database,app,g,ntcv
+import shutil,os,datetime
 
 manager = Manager(app)
 
@@ -43,12 +43,12 @@ def createadminuser():
     r = EcotaxaInst.query.filter_by(id=1).first()
     if r is None:
         print("Create 1st instance VLFR")
-        db.session.add(EcotaxaInst(id=1, name="Oceanographic Laboratory of Villefranche sur Mer - LOV"
-                                   , url="127.0.0.1:5000"
+        db.session.add(EcotaxaInst( name="Oceanographic Laboratory of Villefranche sur Mer - LOV" #id=1,
+                                   , url="http://127.0.0.1:5000"
                                    , sharedsecret="uVyDqG6L24NgpNDwkup3gXddUrjzrG6LYKAOksPOjHgqNPjZkKd2DTB2VzJVQAOI"
                                    ))
-        db.session.add(EcotaxaInst(id=2, name="Test isntance"
-                                   , url="127.0.0.1:5000"
+        db.session.add(EcotaxaInst( name="Test instance"  #id=2,
+                                   , url="http://127.0.0.1:5000"
                                    , sharedsecret="aVyDqG6L24NgpNDwkup3gXddUrjzrG6LYKAOksPOjHgqNPjZkKd2DTB2VzJVQAOI"
                                    ))
         db.session.commit()
@@ -64,36 +64,6 @@ def dbcreate():
         db.create_all()
         import flask_migrate
         flask_migrate.stamp(revision='head')
-        database.ExecSQL("""create view v_taxotree as
-select t.id,concat(t.name,'('||t1.name||')') nom,
-case  when t1 is null then 1 when t2 is null then 2 when t3 is null then 3 when t4 is null then 4
-      when t5 is null then 5 when t6 is null then 6 when t7 is null then 7 when t8 is null then 8
-      when t9 is null then 9 when t10 is null then 10 when t11 is null then 11 when t12 is null then 12
-      when t13 is null then 13 when t14 is null then 14 when t15 is null then 15 when t16 is null then 16
-      when t17 is null then 17 when t18 is null then 18 when t19 is null then 19 end depth
-,concat(t14.name||'>',t13.name||'>',t12.name||'>',t11.name||'>',t10.name||'>',t9.name||'>',t8.name||'>',t7.name||'>',
-     t6.name||'>',t5.name||'>',t4.name||'>',t3.name||'>',t2.name||'>',t1.name||'>',t.name) tree
-      from taxonomy t
-      left join taxonomy t1 on t.parent_id=t1.id
-      left join taxonomy t2 on t1.parent_id=t2.id
-      left join taxonomy t3 on t2.parent_id=t3.id
-      left join taxonomy t4 on t3.parent_id=t4.id
-      left join taxonomy t5 on t4.parent_id=t5.id
-      left join taxonomy t6 on t5.parent_id=t6.id
-      left join taxonomy t7 on t6.parent_id=t7.id
-      left join taxonomy t8 on t7.parent_id=t8.id
-      left join taxonomy t9 on t8.parent_id=t9.id
-      left join taxonomy t10 on t9.parent_id=t10.id
-      left join taxonomy t11 on t10.parent_id=t11.id
-      left join taxonomy t12 on t11.parent_id=t12.id
-      left join taxonomy t13 on t12.parent_id=t13.id
-      left join taxonomy t14 on t13.parent_id=t14.id
-      left join taxonomy t15 on t14.parent_id=t15.id
-      left join taxonomy t16 on t15.parent_id=t16.id
-      left join taxonomy t17 on t16.parent_id=t17.id
-      left join taxonomy t18 on t17.parent_id=t18.id
-      left join taxonomy t19 on t18.parent_id=t19.id
-""")
 
 
 @manager.command
@@ -109,29 +79,6 @@ def ResetDBSequence(cur=None):
         print("Sequence Reset Done")
 
 
-@manager.command
-def FullDBRestore():
-    """
-    Will restore an exported DB as is and replace all existing data
-    """
-    from appli.tasks.taskimportdb import RestoreDBFull
-    if input("This operation will import an exported DB and DESTROY all existings data of the existing database.\nAre you SURE ? Confirm by Y !").lower()!="y":
-        print("Import Aborted !!!")
-        exit()
-    with app.app_context():  # Création d'un contexte pour utiliser les fonction GetAll,ExecSQL qui mémorisent
-        g.db = None
-        RestoreDBFull()
-
-@manager.command
-def RecomputeStats():
-    """
-    Recompute stats related on Taxonomy and Projects
-    """
-    import appli.cron
-    with app.app_context():  # Création d'un contexte pour utiliser les fonction GetAll,ExecSQL qui mémorisent
-        g.db = None
-        appli.cron.RefreshAllProjectsStat()
-        appli.cron.RefreshTaxoStat()
 
 @manager.command
 def CreateDB():
@@ -165,6 +112,16 @@ def CreateDB():
         print("Create Roles & Users")
         createadminuser()
         print("Creation Done")
+
+
+@manager.command
+def RecomputeDisplayName():
+    print ("RecomputeDisplayName")
+    with app.app_context():  # Création d'un contexte pour utiliser les fonction GetAll,ExecSQL qui mémorisent
+        g.db = None
+        import appli.services
+        appli.services.ComputeDisplayName([])
+
 
 
 

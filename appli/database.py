@@ -68,43 +68,15 @@ class EcotaxaInst(db.Model):
     id  = db.Column(INTEGER,db.Sequence('seq_ecotaxainst'), primary_key=True)
     name   = db.Column(VARCHAR(100),nullable=False)
     url   = db.Column(VARCHAR(100))
+    laststatupdate_datetime = db.Column(TIMESTAMP(precision=0))
+    ecotaxa_version = db.Column(VARCHAR(10))
     sharedsecret = db.Column(VARCHAR(100),nullable=False)
 
-
-class Projects(db.Model):
-    __tablename__ = 'projects'
-    projid  = db.Column(INTEGER,db.Sequence('seq_projects'), primary_key=True)
-    title   = db.Column(VARCHAR(255),nullable=False)
-    visible = db.Column(db.Boolean(),default=True)
-    status = db.Column(VARCHAR(40),default="Annotate") # Annotate, ExploreOnly, Annotate No Prediction
-    mappingobj   = db.Column(VARCHAR)
-    mappingsample   = db.Column(VARCHAR)
-    mappingacq   = db.Column(VARCHAR)
-    mappingprocess   = db.Column(VARCHAR)
-    objcount = db.Column(DOUBLE_PRECISION)
-    pctvalidated = db.Column(DOUBLE_PRECISION)
-    pctclassified = db.Column(DOUBLE_PRECISION)
-    classifsettings  = db.Column(VARCHAR) # Settings for Automatic classification.
-    initclassiflist  = db.Column(VARCHAR) # Initial list of categories
-    classiffieldlist  = db.Column(VARCHAR) # Fields available on sort & displayed field of Manual classif screen
-    popoverfieldlist  = db.Column(VARCHAR) # Fields available on popover of Manual classif screen
-    comments  = db.Column(VARCHAR)
-    projtype  = db.Column(VARCHAR(50))
-    fileloaded  = db.Column(VARCHAR)
-    rf_models_used = db.Column(VARCHAR)
-    cnn_network_id=db.Column(VARCHAR(50))
-
-    def __str__(self):
-        return "{0} ({1})".format(self.title,self.projid)
-
-class ProjectsTaxoStat(db.Model):
-    __tablename__ = 'projects_taxo_stat'
-    projid = db.Column(INTEGER,db.ForeignKey('projects.projid',ondelete="CASCADE"), primary_key=True)
-    id  = db.Column(INTEGER, primary_key=True)
-    nbr  = db.Column(INTEGER)
-    nbr_v  = db.Column(INTEGER)
-    nbr_d  = db.Column(INTEGER)
-    nbr_p  = db.Column(INTEGER)
+class EcotaxaInstStat(db.Model):
+    __tablename__ = 'ecotaxainststat'
+    id_instance  = db.Column(INTEGER, primary_key=True)
+    id_taxon  = db.Column(INTEGER, primary_key=True)
+    nbr  = db.Column(INTEGER,nullable=False)
 
 class TempTaxo(db.Model):
     __tablename__ = 'temp_taxo'

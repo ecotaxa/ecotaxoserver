@@ -49,16 +49,13 @@ def before_request_security():
     g.menu.append((url_for("index"),"Home"))
     g.menu.append(("/browsetaxo/","Browse Taxonomy"))
     g.menu.append(("/browseinstance/","Browse Intances"))
-    # if current_user.is_authenticated:
-    #     g.menu.append(("/part/prj/","Particle projects management"))
     g.useradmin=False
     g.appliadmin=False
     if current_user.has_role(database.AdministratorLabel) :
+        g.menu.append(("","SEP"))
         g.menu.append(("/importmassupdate/", "Import Mass Update"))
         g.menu.append(("/importtext/","Import Taxonomy"))
-        # g.menu.append(("/Task/Create/TaskExportDb","Export Database"))
-        # g.menu.append(("/Task/Create/TaskImportDB","Import Database"))
-        # g.menu.append(("/Task/listall","Task Manager"))
+        g.menu.append(("/admin/","Admin Screen"))
         g.appliadmin=True
 
     g.menu.append(("","SEP"))

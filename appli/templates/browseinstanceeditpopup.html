@@ -1,0 +1,106 @@
+{% import 'macro.html' as M  %}
+<script src="/static/parsley.min.js"></script>
+<style>
+  #tblviewtaxon {width: 100%}
+  #tblviewtaxon th {width: 100px;font-weight: normal;background-color: #EEE;}
+  #tblviewtaxon td {word-break: break-all; padding: 3px 5px}
+  #At2PopupWindow0 .At2PopupWindow {width: 1000px;}
+</style>
+<form id="formedittaxon" method="post" action="?">
+<table class=" " id="tblviewtaxon">
+  <tr>
+    <th>ID</th><td><input type="hidden" name="id" value="{{ instance.id }}">{{ instance.id }}</td>
+  </tr>
+  <tr>  <th>Name</th><td colspan="5">{{ M.InputText('name',instance.name,"class=form-control required maxlength=100") }}</td></tr>
+  <tr>  <th>URL</th><td colspan="5">
+    {{ M.InputText('url',instance.url,"class=form-control required data-parsley-type=url data-parsley-pattern='^http.+' maxlength=100") }}</td></tr>
+  <tr>  <th>Shared Secret</th><td colspan="5">
+    <div class="input-group" style="width: 100%">
+      {{ M.InputText('sharedsecret',instance.sharedsecret,"class=form-control required maxlength=100 ") }}
+      <span class="input-group-btn" >
+    <button class="btn" type="button" onclick="GenerateSharedSecret()">
+      <i class="fas fa-arrow-left"></i>
+      Generate secret</button>
+      </span>
+    </div>
+  </td></tr>
+
+</table>
+<table style="width: 100%;margin-top: 10px;">
+  <tr><td><button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Save Instance</button>
+  {% if instance.id!='new' %}
+    <button type="button" onclick="DeleteRecord({{ instance.id }})" class="btn btn-danger"><i class="fa fa-eraser"></i> Delete Instance</button>
+  {% endif %}
+  </td>
+    <td style="text-align: right"><button type="button" onclick="At2PopupClose(0);" class="btn btn-gris"><i class="fa fa-times"></i> Close</button></td></tr>
+</table>
+</form>
+<div id="formedittaxon_PostResult" style="margin-top: 10px"></div>
+<div class="panel panel-default " style="padding: 5px;">
+  How-to register an instance :<br>
+  <ul>
+    <li>Fill this form:</li>
+    <ul>
+      <li>Name : Displayed name</li>
+      <li>URL : Url of the Ecotaxa instance, used to navigate from EcotaxoServer , for local instance you can set http://localhost</li>
+      <li>Shared secret : Generate it using the right button, will be used to secure communication with Ecotaxa instance</li>
+    </ul>
+    <li>Update the <code>config.cfg</code> file of the Ecotaxa instance :<pre>
+TAXOSERVER_URL="ecotaxoserver.obs-vlfr.fr"
+TAXOSERVER_INSTANCE_ID=99999
+TAXOSERVER_SHARED_SECRET="XXXXXXX Put here between quotes the shared secret XXXXXXXXX"</pre>
+      Replace the 99999 with the ID of this form (will be generated after the first save)
+    </li>
+  </ul>
+</div>
+
+<style>
+  .taxolbpop {width: 300px;}
+</style>
+<script>
+  $(".taxolbpop").select2({
+        ajax: {
+            url: "/search/taxo",
+            dataType: 'json',
+            delay: 250,
+            data: function (params) {  return { q: params.term, page: params.page };  },
+            processResults: function (data, page) { return { results: data};  },
+            cache: true
+        },
+        minimumInputLength: 3
+        /*,allowClear:true know bug on it #5394*/
+    }); // Select2 Ajax
+  $('#formedittaxon').parsley();
+
+
+  $('#formedittaxon').submit(function(e){
+    e.preventDefault();
+    var DejaCliqued=$(this).data('DejaCliqued');
+    $(this).data('DejaCliqued','Y');
+    if(DejaCliqued==='Y')
+      return;
+    setTimeout(function(){ $('#formedittaxon').data('DejaCliqued','N'); }, 5000);
+    var formobj=objectifyForm('formedittaxon');
+{#    $("#formedittaxon_PostResult").load('/browsetaxosavepopup/',formobj);#}
+    AtdSetWaitAndLoad("#formedittaxon_PostResult",'/browseinstancesavepopup/',formobj);
+  });
+
+function RandomStringGen(len) {
+  var text = "";
+  var charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  for (var i = 0; i < len; i++)
+    text += charset.charAt(Math.floor(Math.random() * charset.length));
+  return text;
+}
+function GenerateSharedSecret() {
+  $('#sharedsecret').val(RandomStringGen(64));
+}
+
+  function DeleteRecord(id) {
+    At2Confirm("Instance removal","Are you sure you want remove this instance",function () {
+      AtdSetWaitAndLoad("#formedittaxon_PostResult",'/browseinstancedelpopup/',{id:id});
+    });
+  }
+
+
+</script>

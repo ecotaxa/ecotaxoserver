@@ -24,6 +24,7 @@ def doimporttext():
     uploadfile = request.files.get("uploadfile")
     if uploadfile is None:
         return PrintInCharte(FormatError("You must send a file"))
+    Desctxt="{0} on {1:%Y-%m-%d %H:%M:%S} ".format(uploadfile.filename,datetime.datetime.now())
     app.logger.info('Load file {} by {}'.format(uploadfile.filename,current_user))
     #creation d'un fichier temporaire qui s'efface automatiquement
     tmpfile =tempfile.TemporaryFile(mode='w+b')
@@ -66,9 +67,9 @@ def doimporttext():
     TSVal="to_timestamp('{}','YYYY-MM-DD HH24:MI:SS')".format(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
     TSUpdate="lastupdate_datetime="+TSVal
     # insertion des nouveaux noeud racines
-    n = ExecSQL("""INSERT INTO taxonomy (id, parent_id, name, id_source,lastupdate_datetime)
-    select nextval('seq_taxonomy'),NULL,t.name,t.idtaxo,{} 
-    from temp_taxo t where idparent='-1' and idfinal is null and status='1'""".format(TSVal))
+    n = ExecSQL("""INSERT INTO taxonomy (id, parent_id, name, id_source,lastupdate_datetime,source_desc)
+    select nextval('seq_taxonomy'),NULL,t.name,t.idtaxo,{} ,%s
+    from temp_taxo t where idparent='-1' and idfinal is null and status='1'""".format(TSVal),["Created by "+Desctxt])
     app.logger.info("Inserted %d Root Nodes" % n)
 
     # MAJ de la table import existante
@@ -82,10 +83,10 @@ def doimporttext():
         # n=ExecSQL("""INSERT INTO taxonomy (id, parent_id, name, id_source)
         #     select nextval('seq_taxonomy'),ttp.idfinal,tt.name,tt.idtaxo from temp_taxo tt join temp_taxo ttp on tt.idparent=ttp.idtaxo
         #     where tt.idfinal is null and ttp.idfinal is not null and status='1'""")
-        n = ExecSQL("""INSERT INTO taxonomy (id, parent_id, name, id_source,taxotype,lastupdate_datetime)
-            select nextval('seq_taxonomy'),ttp.id,tt.name,tt.idtaxo,case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end,{}
+        n = ExecSQL("""INSERT INTO taxonomy (id, parent_id, name, id_source,taxotype,lastupdate_datetime,source_desc)
+            select nextval('seq_taxonomy'),ttp.id,tt.name,tt.idtaxo,case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end,{},%s
             from temp_taxo tt join taxonomy ttp on tt.idparent=ttp.id_source
-            where tt.idfinal is null and status='1'""".format(TSVal))
+            where tt.idfinal is null and status='1'""".format(TSVal),["Created by "+Desctxt])
         if n == 0:
             app.logger.info("No more data to import")
             break
@@ -98,18 +99,19 @@ def doimporttext():
                     and tt.idfinal is null """)
         app.logger.info("Updated %d inserted Child Nodes" % n)
 
-    n = ExecSQL("""UPDATE taxonomy tf set name=tt.name,{},taxotype=case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end  
+    n = ExecSQL("""UPDATE taxonomy tf set name=tt.name,{},taxotype=case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end
+                      ,source_desc=%s  
                 from temp_taxo tt where tf.id_source=tt.idtaxo
                 and tt.status='1' and  (tf.name!=tt.name
                   or tf.taxotype!=case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end )
-                """.format(TSUpdate))
+                """.format(TSUpdate),["Updated by "+Desctxt])
     app.logger.info("Updated %d Nodes names" % n)
 
-    n = ExecSQL("""UPDATE taxonomy tfu set parent_id=sq.idfinal,{}
+    n = ExecSQL("""UPDATE taxonomy tfu set parent_id=sq.idfinal,{},source_desc=%s
                 from (select tf.id, ttp.idfinal from taxonomy tf
                 ,temp_taxo tt LEFT JOIN temp_taxo ttp on tt.idparent=ttp.idtaxo  where tf.id_source=tt.idtaxo
                 and tt.status='1' and coalesce(tf.parent_id,-1)!=coalesce(ttp.idfinal,-1)
-                and (ttp.idfinal is not null or tt.idparent='-1' )) sq where tfu.id=sq.id""".format(TSUpdate))
+                and (ttp.idfinal is not null or tt.idparent='-1' )) sq where tfu.id=sq.id""".format(TSUpdate),["Updated by "+Desctxt])
     app.logger.info("Updated %d Nodes Parents" % n)
 
     # while True:
@@ -130,6 +132,7 @@ def doimporttext():
     #             or exists (select 1 from objects where classif_id=t.id or classif_auto_id=t.id))""")
     # for r in Lst:
     #     app.logger.info("Can't Delete '%s' because it's used " % r[0])
+    txt+="<br><a href='/browsetaxo/' class='btn btn-primary'><i class='fas fa-arrow-left'></i> Back to taxonomy</a>"
     LstId=[x['idfinal'] for x in GetAll("select idfinal from temp_taxo where idfinal is not null")]
     ComputeDisplayName(LstId)
     app.logger.info("Updated Display name" )

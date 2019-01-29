@@ -1,0 +1,15 @@
+{% extends 'admin/master.html' %}
+{% block body %}
+    {% if g.appliadmin %}
+        <p><b>You have Administrator privileges</b></p>
+        <p></p>
+        <table>
+            <tr >
+                <td width="200"><a href="/adminothers/edithomemessage" class="btn">Edit Home Page Message</a></td>
+            </tr>
+        </table>
+    {% endif %}
+    <p><br>List of Application administrators :
+    {{ GetAdminList() }}
+    </p>
+{% endblock %}

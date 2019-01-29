@@ -19,6 +19,28 @@
         <td colspan="2"><button type="submit" class="btn btn-primary"><i class="fa fa-upload"></i> Load mass update file</button></td>
 
       </tr>
+      <tr><td colspan="2"><br>
+        File format is tsv (tab separated values)<br>
+        You can use the Full TSV Export feature for template<br>
+        Only theses colums are used:<ul>
+          <li>id : Internal Taxo ID used for lookup
+          </li><li>parent_id : Internal Taxo ID of parent
+          </li><li>name
+          </li><li>taxotype : P : Phylo , M : Morpho
+          </li><li>taxostatus : A : Active, N : Not validated, D : Deprecated
+          </li><li>id_source : UniEuk ID
+          </li><li>source_url : URL documenting the source
+          </li><li>source_desc : Description of taxon
+          </li><li>creator_email
+          </li><li>creation_datetime : Format YYYY-MM-DD HH:MI:SS
+          </li><li>id_instance : Ecotaxa Instance id (cf instance list)
+          </li><li>rename_to : Internal Taxo ID of destination for taxon automatic renaming recommanded when deprecating.
+          </li>
+          </ul>
+        Only available colums are updated (you can remove column you doesn't touch), extra columns are ignored (you can use exported format as/is)<br>
+        Display name are recomputed avec import.<br>
+        <a href="/" class="btn btn-default"><i class="fas fa-arrow-left"></i> Back home</a>
+      </td></tr>
     </table>
 
 

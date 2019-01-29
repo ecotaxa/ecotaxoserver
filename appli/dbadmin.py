@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, g, flash,request,url_for,json,escape
 from flask_login import current_user
-from appli import app,ObjectToStr,PrintInCharte,database,gvg,gvp,user_datastore,DecodeEqualList,ScaleForDisplay,ntcv
+from appli import app,ObjectToStr,PrintInCharte,database,gvg,gvp,user_datastore,DecodeEqualList,ScaleForDisplay,ntcv,services
 from pathlib import Path
 from flask_security import Security, SQLAlchemyUserDatastore
 from flask_security import login_required
@@ -15,7 +15,7 @@ from appli.database import GetAll,ExecSQL,db,GetAssoc
 @login_required
 @roles_accepted(database.AdministratorLabel)
 def dbadmin_viewsizes():
-    g.headcenter="Database objects size (public schema only)<br><a href=/admin>Back to admin home</a>"
+    g.headcenter="Database objects size (public schema only)<br><a href=/admin/>Back to admin home</a>"
 
     sql="""SELECT c.relname, c.relkind, CASE WHEN c.relkind='i' THEN c2.tablename ELSE c.relname END fromtable,pg_relation_size(('"' || c.relname || '"')::regclass)/(1024*1024) szMB
 FROM
@@ -45,7 +45,7 @@ ORDER BY c.relkind DESC, pg_relation_size(('"' || c.relname || '"')::regclass) D
 @login_required
 @roles_accepted(database.AdministratorLabel)
 def dbadmin_viewtaxoerror():
-    g.headcenter="Database Taxonomy errors<br><a href=/admin>Back to admin home</a>"
+    g.headcenter="Database Taxonomy errors<br><a href=/admin/>Back to admin home</a>"
 
     sql="""Select 'Missing parent' reason,t.id,t.parent_id,t.name,t.id_source
 from taxonomy t where parent_id not in (select id from taxonomy);
@@ -68,7 +68,7 @@ from taxonomy t where parent_id not in (select id from taxonomy);
 @login_required
 @roles_accepted(database.AdministratorLabel)
 def dbadmin_viewbloat():
-    g.headcenter="Database objects wasted space<br><a href=/admin>Back to admin home</a>"
+    g.headcenter="Database objects wasted space<br><a href=/admin/>Back to admin home</a>"
     sql="""SELECT
         schemaname, tablename, reltuples::bigint, relpages::bigint, otta,
         ROUND(CASE WHEN otta=0 THEN 0.0 ELSE sml.relpages/otta::numeric END,1) AS tbloat,
@@ -136,28 +136,9 @@ def dbadmin_viewbloat():
 @login_required
 @roles_accepted(database.AdministratorLabel)
 def dbadmin_recomputestat():
-    g.headcenter="Statistics recompute<br><a href=/admin>Back to admin home</a>"
-    appli.cron.RefreshTaxoStat()
-    appli.cron.RefreshAllProjectsStat()
+    g.headcenter="Statistics recompute<br><a href=/admin/>Back to admin home</a>"
+    appli.services.RefreshTaxoStat()
     return PrintInCharte("Statistics recompute done")
-
-
-@app.route('/dbadmin/merge2taxon')
-@login_required
-@roles_accepted(database.AdministratorLabel)
-def dbadmin_merge2taxon():
-    if gvg("src","")=="" or gvg("dest","")=="":
-        txt="Select source Taxon (will be deleted after merge) :"
-        txt+="<br>Select Target Taxon :"
-        return render_template('search/merge2taxo.html')
-    TaxoSrc=database.Taxonomy.query.filter_by(id=int(gvg("src",""))).first()
-    TaxoDest=database.Taxonomy.query.filter_by(id=int(gvg("dest",""))).first()
-    N4=ExecSQL("update taxonomy set parent_id=%(dest)s where  parent_id=%(src)s",{"src":TaxoSrc.id,"dest":TaxoDest.id})
-    N5=ExecSQL("delete from taxonomy where id=%(src)s",{"src":TaxoSrc.id,"dest":TaxoDest.id})
-    return PrintInCharte("""Merge of '%s' in '%s' done
-    <br>%d Taxonomy child updated
-    <br>%d Taxonomy Node deleted
-    """%(TaxoSrc.name,TaxoDest.name,N4,N5))
 
 
 @app.route('/dbadmin/console', methods=['GET', 'POST'])
@@ -167,7 +148,7 @@ def dbadmin_console():
     sql=gvp("sql")
     if len(request.form)>0 and request.referrer!=request.url: # si post doit venir de cette page
         return PrintInCharte("Invalid referer")
-    g.headcenter="<font color=red style='font-size:18px;'>Warning : This screen must be used only by experts</font><br><a href=/admin>Back to admin home</a>"
+    g.headcenter="<font color=red style='font-size:18px;'>Warning : This screen must be used only by experts</font><br><a href=/admin/>Back to admin home</a>"
     txt="<form method=post>SQL : <textarea name=sql rows=15 cols=100>%s</textarea><br>"%escape(sql)
     txt+="""<input type=submit class='btn btn-primary' name=doselect value='Execute Select'>
     <input type=submit class='btn btn-primary' name=dodml value='Execute DML'>

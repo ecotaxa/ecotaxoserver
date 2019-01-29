@@ -4,17 +4,17 @@ import os,shutil
 from pathlib import Path
 from zipfile import ZipFile
 
-# Requiert un fichier ecotaxapatch.zip contenant l'arboresence complete depuis la racine de l'application (ce repertoire)
+# Requiert un fichier ecotaxoserverpatch.zip contenant l'arboresence complete depuis la racine de l'application (ce repertoire)
 
 print("""
 *********************************************************
-**************** ECOTAXA UPGRADE PROCESS ****************
+**************** ECOTAXOSERVER UPGRADE PROCESS ****************
 *********************************************************
 """)
 print("Current directory: ",os.getcwd())
 
-if not os.path.exists("ecotaxapatch.zip"):
-    print("File ecotaxapatch.zip must be in the current directory")
+if not os.path.exists("ecotaxoserverpatch.zip"):
+    print("File ecotaxoserverpatch.zip must be in the current directory")
     exit()
 
 if input("This operation will Upgrade your installation.\nAre you SURE ? Confirm by Y !").lower()!="y":
@@ -23,14 +23,14 @@ if input("This operation will Upgrade your installation.\nAre you SURE ? Confirm
 
 
 print("Open ZipFile")
-zfile=ZipFile("ecotaxapatch.zip" , 'r',allowZip64 = True)
+zfile=ZipFile("ecotaxoserverpatch.zip" , 'r',allowZip64 = True)
 
 # TempPatch For test purpose only
 # if os.path.exists("TempPatch"):
 #     shutil.rmtree("TempPatch")
 # os.mkdir("TempPatch")
 # os.chdir("TempPatch")
-# zfile=ZipFile("../ecotaxapatch.zip" , 'r',allowZip64 = True)
+# zfile=ZipFile("../ecotaxoserverpatch.zip" , 'r',allowZip64 = True)
 # End of test section
 
 print("File Upgrade Start ")

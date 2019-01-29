@@ -10,7 +10,7 @@
 {%- endmacro %}
 
 {% macro InputText (name,value='',extrataginfo='') -%}
-  <input type="text" name="{{ name }}" id="{{ name }}" value="{{ value  or '' }}"{{ extrataginfo }}>
+  <input type="text" name="{{ name }}" id="{{ name }}" value="{{ value  or '' }}"{{ extrataginfo|safe }}>
 {%- endmacro %}
 
 {% macro TextArea (name,rows,value='',extrataginfo='') -%}

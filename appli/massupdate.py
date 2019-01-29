@@ -95,7 +95,7 @@ def doimportmassupdate():
         txt += "<p style='color: red'> %s errors <ul> " % (len(Errors))
         txt += "\n".join("<li>%s</li>"%x for x in Errors)
         txt += "</ul></p> "
-
+    txt += "<a href='/browsetaxo/' class='btn btn-primary'><i class='fas fa-arrow-left'></i> Back to Browse Taxonomy</a>"
     g.bodydivmargin="10px"
     return PrintInCharte(txt)
 

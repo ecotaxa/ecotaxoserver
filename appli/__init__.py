@@ -181,14 +181,15 @@ def FormatSuccess(Msg,*args,DoNotEscape=False,**kwargs):
 # Ici les imports des modules qui definissent des routes
 import appli.main
 import appli.adminusers
+import appli.adminothers
 import appli.dbadmin
 import appli.browsetaxo
+import appli.browseinstances
 import appli.services
 import appli.search
 import appli.massupdate
 import appli.importtext
-# import appli.tasks.taskmanager
-# import appli.usermgmnt
+
 
 @app.errorhandler(404)
 def not_found(e):
@@ -233,7 +234,12 @@ order by Lower(u.name)""")
         sujet="?"+urllib.parse.urlencode({"subject":sujet}).replace('+','%20')
     return " ".join(["<li><a href='mailto:{1}{0}'>{2} ({1})</a></li> ".format(sujet,*r) for r in LstUsers ])
 
+def IsAdmin():
+    from flask_login import current_user
+    return current_user.has_role(database.AdministratorLabel)
+
 app.jinja_env.filters['datetime'] = JinjaFormatDateTime
 app.jinja_env.filters['nl2br'] = JinjaNl2BR
 app.jinja_env.globals.update(GetManagerList=JinjaGetManagerList)
 
+app.jinja_env.globals.update(IsAdmin=IsAdmin)

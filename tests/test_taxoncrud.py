@@ -1,8 +1,8 @@
 import requests,json
 
 url_ret="http://127.0.0.1:5001"
-instancedata={1:{'id_instance':1,'sharedsecret':'uVyDqG6L24NgpNDwkup3gXddUrjzrG6LYKAOksPOjHgqNPjZkKd2DTB2VzJVQAOI'}
-            , 2:{'id_instance':2,'sharedsecret':'aVyDqG6L24NgpNDwkup3gXddUrjzrG6LYKAOksPOjHgqNPjZkKd2DTB2VzJVQAOI'} }
+instancedata={1:{'id_instance':1,'sharedsecret':'uVyDqG6L24NgpNDwkup3gXddUrjzrG6LYKAOksPOjHgqNPjZkKd2DTB2VzJVQAOI','ecotaxa_version':'10.0.0'}
+            , 2:{'id_instance':2,'sharedsecret':'aVyDqG6L24NgpNDwkup3gXddUrjzrG6LYKAOksPOjHgqNPjZkKd2DTB2VzJVQAOI','ecotaxa_version':'10.0.0'} }
 
 def request_withinstanceinfo(urlend,params,id_instance=1):
     params.update(instancedata[id_instance])
@@ -47,7 +47,8 @@ def test_crud():
     id=j['id']
     j = request_withinstanceinfo("/gettaxon/",{'filtertype':'id','id':id})
     assert("Test-creation" ==j[0]['name'])
-    assert("living>Test-creation" ==j[0]['display_name'])
+    # assert("living>Test-creation" ==j[0]['display_name'])
+    assert("Test-creation" ==j[0]['display_name'])
 
     # test securité effacement avec une autre instance
     j =request_withinstanceinfo("/deltaxon/",{'id':id},2)
@@ -59,8 +60,17 @@ def test_crud():
     id=j['id']
     j = request_withinstanceinfo("/gettaxon/",{'filtertype':'id','id':id})
     assert("Test-update" ==j[0]['name'])
-    assert("living>Test-update" ==j[0]['display_name'])
+    # assert("living>Test-update" ==j[0]['display_name'])
+    assert("Test-update" ==j[0]['display_name'])
 
     # Test Delete
     j =request_withinstanceinfo("/deltaxon/",{'id':id})
+    assert("ok" in j['msg'])
+
+def test_setstat():
+    # Test sans données
+    j =request_withinstanceinfo("/setstat/",{'data':json.dumps({})})
+    assert("ok" in j['msg'])
+    # Test avec données
+    j =request_withinstanceinfo("/setstat/",{'data':json.dumps({1:123,2:456,3:789})})
     assert("ok" in j['msg'])

@@ -7,11 +7,13 @@
 </style>
 <table class="table table-bordered" id="tblviewtaxon">
   <tr>
-    <th>ID</th><td>{{ taxon.id }}</td><th>Parent ID</th><td>{{ taxon.parent_id }} {{ taxon.parentname }}</td>
+    <th>Name</th><td colspan="3">{{ taxon.name }}</td>
     <th>Type</th><td>{{ g.TaxoType[taxon.taxotype] }}</td>
   </tr>
-  <tr>  <th>Name</th><td colspan="5">{{ taxon.name }}</td></tr>
   <tr>  <th>Display Name</th><td colspan="5">{{ taxon.display_name }}</td></tr>
+  <tr>
+    <th>Parent ID</th><td>{{ taxon.parent_id }} {{ taxon.parentname }}</td>
+  </tr>
   <tr>  <th>Tree</th><td colspan="5">{{ taxon.tree }}</td></tr>
 
   <tr>
@@ -27,11 +29,24 @@
   <tr>
     <th>Status</th><td>{{ g.TaxoStatus[taxon.taxostatus] or ''}}</td>
     <th>Rename To</th><td colspan="3">{{ taxon.rename_to or ''}} {{ taxon.rename_to_name or ''}} </td></tr>
+  <tr>
+    <th>Nbr objects</th><td>{{ taxon.nbrobj or ''}}</td>
+    <th>Nbr&nbsp;objects&nbsp;Cum</th><td colspan="3">{{ taxon.nbrobjcum or ''}}  </td></tr>
 
 </table>
 <table style="width: 100%">
-  <tr><td><button type="button" class="btn btn-primary" onclick="EditEl('{{ taxon.id }}')"><i class="fa fa-pencil-alt"></i> Edit Taxon</button></td>
+  <tr><td>
+    {% if IsAdmin() %}
+    <button type="button" class="btn btn-primary" onclick="EditEl('{{ taxon.id }}')"><i class="fa fa-pencil-alt"></i> Edit Taxon</button>
+    {% endif %}
+  </td>
     <td style="text-align: right"><button type="button" onclick="At2PopupClose(0);" class="btn btn-gris"><i class="fa fa-times"></i> Close</button></td></tr>
+</table>
+<table style="width: 100%; margin-top: 10px;" class="table table-bordered table-verycondensed">
+<tr><th> Ecotaxa Instance</th><th># Objects</th></tr>
+  {% for s in stat %}
+    <tr><td> {{s['name']}} - <a href="{{s['url']}}/explore/?taxo%5B%5D={{taxon.id}}" target="_blank"><i class="fas fa-external-link-alt"></i></a> </td><td>{{ s['nbr'] }} </td></tr>
+  {% endfor %}
 </table>
 <script>
   function EditEl(taxoid) {

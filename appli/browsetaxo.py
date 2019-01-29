@@ -5,6 +5,7 @@ from appli import app,ObjectToStr,PrintInCharte,database,db,gvg,gvp,FormatError,
 from appli.database import GetAll
 import json,re,traceback,datetime
 from appli.services import ComputeDisplayName
+from flask_security.decorators import roles_accepted,login_required
 
 # Version avec la depth
 # SQLTreeSelect="""case  when t1 is null then 1 when t2 is null then 2 when t3 is null then 3 when t4 is null then 4
@@ -56,6 +57,7 @@ def browsetaxo():
             lstitem['parent_id']=""
 
     nbrtaxon=GetAll("select count(*) from taxonomy")[0][0]
+    g.AdminLists=GetAll("select email,name from users where email like '%@%' and active=TRUE order by 2")
     return render_template('browsetaxo.html',lst=lst,nbrtaxon=nbrtaxon)
 
 
@@ -118,6 +120,7 @@ def browsetaxoajax():
     lst = GetAll(sql,params)
     for lstitem in lst: # Post traitement sur les chaines
         lstitem['tree']=PackTreeTxt(lstitem['tree'])
+        lstitem['name']=XSSEscape(lstitem['name'])
         if lstitem['parent_id'] is None:
             lstitem['parent_id']=""
 
@@ -138,7 +141,7 @@ def browsetaxotsvexport():
       ,t.creator_email,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi,ss') creation_datetime
       ,t.id_instance,t.rename_to
       ,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi:ss') lastupdate_datetime
-      ,i.name instance_name,tr.display_name rename_to_name
+      ,i.name instance_name,tr.display_name rename_to_name,t.nbrobj,t.nbrobjcum
       ,t.display_name,{}
     from taxonomy t 
     LEFT JOIN ecotaxainst i on t.id_instance=i.id
@@ -149,7 +152,7 @@ def browsetaxotsvexport():
     lst = GetAll(sql)
     t=[]
     t.append("id\tparent_id\tname\ttaxotype\ttaxostatus\tid_source\tsource_url\tsource_desc\tcreator_email\tcreation_datetime"
-             +"\tid_instance\trename_to\tlastupdate_datetime\tinstance_name\trename_to_name\tdisplay_name\tlineage")
+             +"\tid_instance\trename_to\tlastupdate_datetime\tinstance_name\trename_to_name\tnbrobj\tnbrobjcum\tdisplay_name\tlineage")
     for l in lst:
         # t.append("{id},{parent_id}".format(l))
         t.append("\t".join((str(ntcv(x)).replace("\n","\\n").replace("\t","\\t").replace("\r","") for x in l[0:99])))
@@ -173,9 +176,15 @@ def browsetaxoviewpopup(taxoid):
     taxon= GetAll(sql,{'id':taxoid})[0]
     g.TaxoType=database.TaxoType
     g.TaxoStatus = database.TaxoStatus
-    return render_template('browsetaxoviewpopup.html', taxon=taxon)
+    stat= GetAll("""select i.name,i.url,s.nbr
+    from ecotaxainststat s join ecotaxainst i on i.id=s.id_instance 
+    where id_taxon=%(id)s
+    order by i.name """,{'id':taxoid})
+    return render_template('browsetaxoviewpopup.html', taxon=taxon,stat=stat)
 
 @app.route('/browsetaxoeditpopup/<int:taxoid>')
+@login_required
+@roles_accepted(database.AdministratorLabel)
 def browsetaxoeditpopup(taxoid):
     sql = """select t.*,i.name inst_name,url inst_url,concat(rt.display_name) rename_to_name
             ,p.display_name parentname,to_char(t.creation_datetime,'YYYY-MM-DD HH24:MI') creationdatetimefmt,{}
@@ -194,6 +203,8 @@ def browsetaxoeditpopup(taxoid):
 
 
 @app.route('/browsetaxosavepopup/',methods=['POST'])
+@login_required
+@roles_accepted(database.AdministratorLabel)
 def browsetaxosavepopup():
     txt=""
     try:
