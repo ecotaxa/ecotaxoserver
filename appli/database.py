@@ -61,6 +61,7 @@ class Taxonomy(db.Model):
 Index('IS_TaxonomyParent',Taxonomy.__table__.c.parent_id)
 Index('IS_TaxonomySource',Taxonomy.__table__.c.id_source)
 Index('IS_TaxonomyNameLow',func.lower(Taxonomy.__table__.c.name))
+Index('is_taxo_parent_name', Taxonomy.__table__.c.parent_id, Taxonomy.__table__.c.name, unique=True)
 
 
 class EcotaxaInst(db.Model):
