@@ -58,7 +58,7 @@ def browsetaxo():
 
     nbrtaxon=GetAll("select count(*) from taxonomy")[0][0]
     g.AdminLists=GetAll("select email,name from users where email like '%@%' and active=TRUE order by 2")
-    return render_template('browsetaxo.html',lst=lst,nbrtaxon=nbrtaxon)
+    return render_template('browsetaxo.html',lst=lst,nbrtaxon=nbrtaxon,taxon_id=gvg('id'))
 
 
 @app.route('/browsetaxo/ajax',methods=['POST'])

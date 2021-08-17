@@ -117,4 +117,7 @@ $(document).ready(function() {
 } );
 
 </script>
+{% if taxon_id %}
+At2PopupWaitOpenLoad(0,"/browsetaxoviewpopup/"+{{ taxon_id }},"View taxon "+{{ taxon_id }});
+{% endif %}
 {% endblock %}
