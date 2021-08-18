@@ -270,6 +270,9 @@ def UpdateObjectFromForm(taxon):
 
 @app.route('/settaxon/',methods=['POST'])
 def routesettaxon():
+    """
+        Update a taxon or create a new one if 'id' parameter is not supplied.
+    """
     CheckInstanceSecurity()
     taxotype=gvp('taxotype')
     name=gvp('name')
@@ -291,17 +294,6 @@ def routesettaxon():
         db.session.commit()
         ComputeDisplayName([Taxon.id])
         return jsonify(msg='ok',id=Taxon.id)
-
-@app.route('/deltaxon/',methods=['POST'])
-def routedeltaxon():
-    CheckInstanceSecurity()
-    with TaxoOperationLocker():
-        Taxon = database.Taxonomy.query.filter_by(id=int(gvp('id'))).first()
-        CheckTaxonUpdateRight(Taxon)
-        db.session.delete(Taxon)
-        db.session.commit()
-    return jsonify(msg='ok')
-
 
 @app.route('/gettaxon/',methods=['POST'])
 def routegettaxon():
