@@ -116,6 +116,10 @@ $(document).ready(function() {
     });
 } );
 
+{% if taxon_id %}
+At2PopupWaitOpenLoad(0,"/browsetaxoviewpopup/"+{{ taxon_id }},"View taxon "+{{ taxon_id }});
+{% endif %}
+
 </script>
 {% if taxon_id %}
 At2PopupWaitOpenLoad(0,"/browsetaxoviewpopup/"+{{ taxon_id }},"View taxon "+{{ taxon_id }});
