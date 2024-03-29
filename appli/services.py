@@ -154,7 +154,7 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
     if taxotype == 'P' : # Phylo
         # if not re.match(r"^[A-Z][a-z+\-']{2,} ?[a-z+\-']*$", name):
         if not re.match(r"^[A-Z][a-z+\-']{2,}( [a-z+\-']+)*$", name):
-            return "Name must start with an Uppercase, then contain only +, -, ', lowercase letters or spaces (one at a time). Minimum length 3."
+            return "Name must start with an Uppercase letter, then contain only lowercase letters, the symbols +, -, ' or a single space; minimum length is 3 characters."
         sql="select count(*) from taxonomy where lower(name)=lower( (%s) ) "
         if updatetarget and int(updatetarget)>0 :
             sql +=" and id!={}".format(int(updatetarget))
@@ -163,7 +163,7 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
             return "duplicate name"
     elif taxotype == 'M' : # Morpho
         if not re.match(r"^[a-z0-9+\-']{3,}( [a-z0-9+\-']+)*$", name):
-            return "Name must contain only +, -, ', lowercase letters, digits or spaces (one at a time). Minimum length 3."
+            return "Name must contain lowercase letters, digits, the symbols +, -, ', or a single space; minimum length is 3 characters."
         if not parent:
             return "You must specify a parent to check morpho type"
         sql="select count(*) from taxonomy where lower(name)=lower( (%s) ) and parent_id={}".format(int(parent))
