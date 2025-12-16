@@ -41,7 +41,7 @@ def doimportmassupdate():
     rowcount=0
     Errors=[]
     UpdatedTaxon=[]
-    UpdatableCols=['parent_id', 'name', 'taxotype', 'taxostatus', 'id_source', 'source_url', 'source_desc', 'creator_email', 'creation_datetime', 'id_instance', 'rename_to']
+    UpdatableCols=['aphia_id','parent_id', 'name', 'taxotype', 'taxostatus', 'source_url', 'source_desc', 'creator_email', 'creation_datetime', 'id_instance', 'rename_to']
     # 'lastupdate_datetime', 'display_name',
     for r in rdr:
         rowcount+=1
@@ -85,7 +85,7 @@ def doimportmassupdate():
         if valueschanged:
             # db.session.add(taxon)
             UpdatedTaxon.append(id)
-            taxon.lastupdate_datetime=datetime.datetime.utcnow()
+            taxon.lastupdate_datetime=datetime.datetime.now(timezone.utc)
             db.session.commit()
         # app.logger.info(str(r))
     if len(UpdatedTaxon)>0:

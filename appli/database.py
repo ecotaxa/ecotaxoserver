@@ -3,12 +3,9 @@
 # Copyright (C) 2015-2016  Picheral, Colin, Irisson (UPMC-CNRS)
 from appli import db,app,g
 from flask_security import  UserMixin, RoleMixin
-from flask_login import current_user
-from sqlalchemy.dialects.postgresql import BIGINT,FLOAT,VARCHAR,DATE,TIME,DOUBLE_PRECISION,INTEGER,CHAR,TIMESTAMP,REAL
-from sqlalchemy import Index,Sequence,func
-from sqlalchemy.exc import DBAPIError
-from sqlalchemy.orm import foreign,remote
-import json,psycopg2.extras,datetime,os,time
+from sqlalchemy.dialects.postgresql import VARCHAR,INTEGER,CHAR,TIMESTAMP
+from sqlalchemy import Index,func
+import psycopg2.extras,datetime
 
 AdministratorLabel="Application Administrator"
 
@@ -39,13 +36,14 @@ class users(db.Model, UserMixin):
         return "{0} ({1})".format(self.name,self.email)
 
 class Taxonomy(db.Model):
-    __tablename__ = 'taxonomy'
-    id  = db.Column(INTEGER,db.Sequence('seq_taxonomy'), primary_key=True)
+    __tablename__ = 'taxonomy_worms'
+    id  = db.Column(INTEGER,db.Sequence('seq_taxonomy_worms'), primary_key=True)
+    aphia_id  = db.Column(INTEGER)
+    rank = db.Column(VARCHAR(24))
     parent_id  = db.Column(INTEGER)
     name   = db.Column(VARCHAR(100),nullable=False)
     taxotype   = db.Column(CHAR(1),nullable=False,server_default='P') # P = Phylo , M = Morpho
     display_name = db.Column(VARCHAR(200))
-    id_source  = db.Column(VARCHAR(20))
     source_url = db.Column(VARCHAR(200))
     source_desc = db.Column(VARCHAR(1000))
     creator_email = db.Column(VARCHAR(255))
@@ -59,7 +57,7 @@ class Taxonomy(db.Model):
     def __str__(self):
         return "{0} ({1})".format(self.name,self.id)
 Index('IS_TaxonomyParent',Taxonomy.__table__.c.parent_id)
-Index('IS_TaxonomySource',Taxonomy.__table__.c.id_source)
+Index('IS_TaxonomyAphiaID',Taxonomy.__table__.c.aphia_id)
 Index('IS_TaxonomyNameLow',func.lower(Taxonomy.__table__.c.name))
 Index('is_taxo_parent_name', Taxonomy.__table__.c.parent_id, Taxonomy.__table__.c.name, unique=True)
 
@@ -90,7 +88,7 @@ class TempTaxo(db.Model):
 Index('IS_TempTaxoParent',TempTaxo.__table__.c.idparent)
 Index('IS_TempTaxoIdFinal',TempTaxo.__table__.c.idfinal)
 
-GlobalDebugSQL=False
+
 GlobalDebugSQL=True
 def GetAssoc(sql,params=None,debug=False,cursor_factory=psycopg2.extras.DictCursor,keyid=0):
     if 'db' not in g or g.db is None:
@@ -190,24 +188,5 @@ def ExecSQL(sql,params=None,debug=False):
         cur.close()
     return LastRowCount
 
-def GetDBToolsDir():
-    toolsdir=app.config['DB_TOOLSDIR']
-    if len(toolsdir)>0:
-        if toolsdir[0]=='.': # si chemin relatif on calcule le path absolu par rapport à la racine de l'appli
-            toolsdir=os.path.join( os.path.dirname(os.path.realpath(__file__)),"..",toolsdir)
-            toolsdir=os.path.normpath(toolsdir)
-    return toolsdir
-
-def CSVIntStringToInClause(InStr):
-    if InStr is None:
-        return ""
-    return ",".join([str(int(x)) for x in InStr.split(',')])
 
 
-def GetTaxoNameFromIdList(IdList):
-    sql = """SELECT tf.id, tf.name||case when p1.name is not null and tf.name not like '%% %%'  then ' ('||p1.name||')' else ' ' end as name
-             FROM taxonomy tf
-            left join taxonomy p1 on tf.parent_id=p1.id
-            WHERE  tf.id = any (%s) 
-            order by tf.name """
-    return GetAll(sql,[IdList])

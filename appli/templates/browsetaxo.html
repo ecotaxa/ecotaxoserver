@@ -36,14 +36,14 @@ Clic on ID and ParentID to set Parent filter. Click on display name to show and 
   <a href="?" class="btn btn-primary btn-xs"><i class="fas fa-eraser"></i> Clear filter</a>
 <table id="tbl" style="width:100%" class="table table-striped table-bordered" >
 <thead>
-  <tr><td>ID</td><td>Parent ID</td><td>Display name</td><td>Type</td><td>Status</td>
-  <td>Creator</td><td>Source ID</td><td>Creation Date</td><td>Last update</td><td>Lineage</td>
+  <tr><td>ID</td><td>Aphia_ID</td><td>Parent ID</td><td>Rank</td></td><td>Display name</td><td>Type</td><td>Status</td>
+  <td>Creator</td><td>Creation Date</td><td>Last update</td><td>Lineage</td>
   </tr>
 </thead>
 <tbody>
 {% for l in lst %}
-  <tr><td>{{l.id}}</td><td>{{l.parent_id}}</td><td>{{l.name}}</td><td>{{l.taxotype}}</td><td>{{l.taxostatus}}</td>
-  <td>{{l.creator_email or ''}}</td><td>{{l.id_source or ''}}</td><td>{{l.creation_datetime or ''}}</td><td>{{l.lastupdate_datetime}}</td><td>{{l.tree}}</td>
+  <tr><td>{{l.id}}</td><td>{{l.aphia_id or ''}}</td><td>{{l.parent_id}}</td><td>{{l.rank}}</td></td><td>{{l.name}}</td><td>{{l.taxotype}}</td><td>{{l.taxostatus}}</td>
+  <td>{{l.creator_email or ''}}</td><td>{{l.creation_datetime or ''}}</td><td>{{l.lastupdate_datetime}}</td><td>{{l.tree}}</td>
   </tr>
 {% endfor %}
 </tbody>

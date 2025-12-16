@@ -17,7 +17,7 @@
   <tr>  <th>Tree</th><td colspan="5">{{ taxon.tree }}</td></tr>
 
   <tr>
-    <th>Source ID</th><td>{{ taxon.id_source or ''}}</td>
+    <th>Aphia ID</th><td>{{ taxon.aphia_id or ''}}</td>
     <th>Source URL</th><td colspan="3">{{ (('<a href='|safe+(taxon.source_url|tojson)+'>'|safe) +taxon.source_url+'</a>'|safe) if taxon.source_url else '' }}</td></tr>
   <tr><th>Source Desc</th><td colspan="5">{{ M.NL2BR (taxon.source_desc) }}  </td></tr>
   <tr>

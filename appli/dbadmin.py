@@ -8,7 +8,7 @@ from flask_security.decorators import roles_accepted
 # from appli.search.leftfilters import getcommonfilters
 import os,time,math,collections,appli,psycopg2.extras
 from appli.database import GetAll,ExecSQL,db,GetAssoc
-
+from sqlalchemy import text
 
 
 @app.route('/dbadmin/viewsizes')
@@ -47,8 +47,8 @@ ORDER BY c.relkind DESC, pg_relation_size(('"' || c.relname || '"')::regclass) D
 def dbadmin_viewtaxoerror():
     g.headcenter="Database Taxonomy errors<br><a href=/admin/>Back to admin home</a>"
 
-    sql="""Select 'Missing parent' reason,t.id,t.parent_id,t.name,t.id_source
-from taxonomy t where parent_id not in (select id from taxonomy);
+    sql="""Select 'Missing parent' reason,t.id,t.parent_id,t.name,t.aphia_id
+from taxonomy_worms t where parent_id not in (select id from taxonomy);
 """
     cur = db.engine.raw_connection().cursor()
     try:
@@ -189,3 +189,133 @@ def dbadmin_console():
 
 
     return PrintInCharte(txt)
+
+@app.route('/dbadmin/taxoworms')
+def dbadmin_taxoworms():
+    import csv
+    import os
+
+    rowdef = ['ecotaxa_id', 'new_id_ecotaxa', 'new_parent_id_ecotaxa', 'aphia_id', 'action', 'details', 'name_ecotaxa',
+              'name_wrm']
+    filename = 'tableau_ecotaxa_worms_211025.csv'
+    action = ''
+    get_old_parent_id = "(SELECT parent_id FROM taxonomy a WHERE a.id = {ecotaxa_id})"
+    get_old_type = "(SELECT type FROM taxonomy a WHERE a.id = {ecotaxa_id})"
+    result = db.engine.execute(text("DROP TABLE taxonomy_worms;"))
+    qry = """ CREATE TABLE taxonomy_worms (
+        id INTEGER,
+        aphia_id INTEGER,
+        parent_id INTEGER,
+        name VARCHAR(100)  NOT NULL,
+        taxotype CHAR DEFAULT 'P' NOT NULL,
+        display_name VARCHAR(200),
+        source_url VARCHAR(200),
+        source_desc VARCHAR(1000),
+        creator_email VARCHAR(255),
+        creation_datetime TIMESTAMP,
+        lastupdate_datetime TIMESTAMP,
+        id_instance INTEGER,
+        taxostatus CHAR DEFAULT 'A' NOT NULL,
+        rename_to INTEGER,
+        kingdom VARCHAR(128),
+        rank VARCHAR(24),
+        lsid VARCHAR(257),
+        nbrobj INTEGER,
+        nbrobjcum INTEGER);"""
+    result = db.engine.execute(text(qry));
+    qry = """
+        INSERT INTO taxonomy_worms(id,parent_id,name,taxotype,display_name,source_url, source_desc, creator_email,creation_datetime,lastupdate_datetime,id_instance,taxostatus,rename_to,nbrobj,nbrobjcum) select id,parent_id,name,taxotype,display_name,source_url,source_desc,creator_email,creation_datetime,lastupdate_datetime,id_instance,taxostatus,rename_to,nbrobj,nbrobjcum from taxonomy;"""
+    result = db.engine.execute(text(qry));
+    fileworms = open('static/db_update/worms.sql', 'w');
+    errorfile = open('static/db_update/error.log', 'w');
+    NA = "NA";
+    verifs = {};
+    with open('static/' + filename, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        i = 0
+
+        index = 1
+        for row in reader:
+            i += 1
+            row['action'] = row['action'].strip()
+            row['name_ecotaxa'] = row['name_ecotaxa'].strip()
+            row['name_wrm'] = row['name_wrm'].strip()
+            if i > 0 and i == index * 50000:
+                index += 1;
+            filesql = 'static/db_update/' + row['action'].replace(' ', '_') + str(index) + '.sql'
+            if os.path.exists(filesql):
+                wr = "a"
+            else:
+                wr = "w"
+            if row['aphia_id'].strip() != NA and row['name_wrm'] != NA:
+                obj = {};
+                obj[str(row['aphia_id'])] = (row['aphia_id'], row['new_parent_id_ecotaxa']);
+                verifs.update(obj);
+                # sqlworms="INSERT INTO worms(aphia_id, scientificname, url, authority, status,unacceptreason,taxon_rank_id,rank,valid_aphia_id,valid_name,valid_authority,parent_name_usage_id,kingdom,phylum,class_, family, genus, citation, lsid, is_marine, is_brackish,is_freshwater,is_terrestrial,is_extinct,match_type) VALUES({aphia_id},'{name_wrm}', '', '', '','',0,0,{aphia_id},'{name_wrm}','',{new_parent_id_ecotaxa},'','','','', '', '', '', True, True,False,False,False,'');".format(aphia_id=row['aphia_id'],name_wrm=row['name_wrm'],new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'])
+                # fileworms.write(sqlworms+"\n")
+
+            if row['name_ecotaxa'] != row['name_wrm'] and row['name_wrm'] != NA:
+                newname = row['name_wrm'].replace("'", "''")
+            elif row['name_ecotaxa'] != NA:
+                newname = row['name_ecotaxa'].replace("'", "''")
+            else:
+                newname = NA + str(row['ecotaxa_id'])
+                if row['action'] == 'Creer nouvelle categorie':
+                    qry = "INSERT INTO taxonomy_worms(id, name,parent_id) VALUES({ecotaxa_id}, '{name}',{new_parent_id_ecotaxa}); ".format(
+                        ecotaxa_id=row['ecotaxa_id'], new_id_ecotaxa=row['new_id_ecotaxa'], name=newname,
+                        new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'])
+                    errorfile.write(qry + "\n")
+                else:
+                    errorfile.write(" no name - " + ", ".join(row.values()) + "\n")
+                continue
+            if row['action'] == 'Creer nouvelle categorie' or (
+                    row['action'] == 'Rien' and int(row['ecotaxa_id']) >= 100000):
+                if row['action'] == 'Rien':
+                    row['action'] = 'Creer nouvelle categorie'
+                if row['aphia_id'] != NA:
+                    qry = "INSERT INTO taxonomy_worms(id,aphia_id, name,parent_id) VALUES({ecotaxa_id},{aphia_id}, '{name}',{new_parent_id_ecotaxa}); ".format(
+                        ecotaxa_id=row['ecotaxa_id'], new_id_ecotaxa=row['new_id_ecotaxa'], aphia_id=row['aphia_id'],
+                        name=newname, new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'])
+                elif newname != NA:
+                    qry = "INSERT INTO taxonomy_worms(id, name,parent_id) VALUES({ecotaxa_id}, '{name}',{new_parent_id_ecotaxa}); ".format(
+                        ecotaxa_id=row['ecotaxa_id'], new_id_ecotaxa=row['new_id_ecotaxa'], name=newname,
+                        new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'])
+            elif row['action'] == 'deprecier':
+                qry = "UPDATE taxonomy_worms SET rename_to={new_id_ecotaxa},taxostatus='D' WHERE id={ecotaxa_id};".format(
+                    ecotaxa_id=row['ecotaxa_id'], new_id_ecotaxa=row['new_id_ecotaxa'])
+            elif row['action'] == 'A supprimer':
+                qry = "UPDATE taxonomy_worms SET taxostatus ='C' WHERE id={ecotaxa_id};".format(
+                    ecotaxa_id=row['ecotaxa_id'])
+            elif row['action'] == 'changer type en Morpho':
+                qry = "UPDATE taxonomy_worms SET taxotype='M' WHERE id={ecotaxa_id};".format(
+                    ecotaxa_id=row['ecotaxa_id'], name=newname)
+            elif row['action'] == 'Ajouter aphia_id':
+                qry = "UPDATE taxonomy_worms SET name='{name}',aphia_id={aphia_id} WHERE id={ecotaxa_id};".format(
+                    ecotaxa_id=row['ecotaxa_id'], name=newname, aphia_id=row['aphia_id'])
+            elif row['action'] == 'Changer le parent':
+                if row['details'].strip() == 'Changer le parent':
+                    qry = "UPDATE taxonomy_worms SET name='{name}',aphia_id={aphia_id}, parent_id={new_parent_id_ecotaxa} WHERE id={ecotaxa_id};".format(
+                        ecotaxa_id=row['ecotaxa_id'], name=newname, aphia_id=row['aphia_id'],
+                        new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'])
+                elif row['details'].strip() == 'morpho parent deprécié':
+                    qry = "UPDATE taxonomy_worms SET name='{name}', parent_id={new_parent_id_ecotaxa} WHERE id={ecotaxa_id};".format(
+                        ecotaxa_id=row['ecotaxa_id'], name=newname, new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'])
+                elif row['details'].strip() == 'brancher un nouvel ecotaxaid':
+                    qry = "UPDATE taxonomy_worms SET name='{name}', aphia_id={aphia_id},parent_id={new_parent_id_ecotaxa} WHERE id={ecotaxa_id};".format(
+                        ecotaxa_id=row['ecotaxa_id'], name=newname, new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'],
+                        aphia_id=row['aphia_id'])
+                elif row['details'].strip() == "Pas de match avec Worms mais rattache plus haut":
+                    qry = "UPDATE taxonomy_worms SET name='{name}', parent_id={new_parent_id_ecotaxa} WHERE id={ecotaxa_id};".format(
+                        ecotaxa_id=row['ecotaxa_id'], name=newname,
+                        new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'])
+            elif row['action'] == 'Changer le parent + Pas de match avec Worms mais rattache plus haut' or row[
+                'action'] == 'Rien + Pas de match avec Worms mais rattache plus haut':
+                qry = "UPDATE taxonomy_worms SET parent_id={new_parent_id_ecotaxa} WHERE id={ecotaxa_id};".format(
+                    ecotaxa_id=row['ecotaxa_id'], new_parent_id_ecotaxa=row['new_parent_id_ecotaxa'])
+            else:
+                qry = ""
+                errorfile.write(" no sql defined - " + ",".join(row.values()) + "\n")
+            if qry != "":
+                result = db.engine.execute(text(qry))
+                with open(filesql, wr) as actionfile:
+                    actionfile.write(qry + "\n")

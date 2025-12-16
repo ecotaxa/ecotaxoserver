@@ -50,7 +50,6 @@ def doimporttext():
         lig[4].strip()))
         if RowCount > 0 and RowCount % 1000 == 0:
             app.logger.info("Inserted %s lines" % RowCount)
-
         RowCount += 1
     app.logger.info("count=%d" % RowCount)
 
@@ -61,20 +60,20 @@ def doimporttext():
 
     # MAJ des IDFinal dans la table temp pour tout ce qui existe.
     n = ExecSQL("""UPDATE temp_taxo tt set idfinal=tf.id
-                from taxonomy tf where tf.id_source=tt.idtaxo or (lower(tf.name)=lower(tt.name) and tf.id_source is null)""")
+                from taxonomy_worms tf where tf.aphia_id=tt.idtaxo or (lower(tf.name)=lower(tt.name) and tf.aphia_id is null)""")
     app.logger.info("%d Nodes already exists " % n)
 
     TSVal="to_timestamp('{}','YYYY-MM-DD HH24:MI:SS')".format(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
     TSUpdate="lastupdate_datetime="+TSVal
     # insertion des nouveaux noeud racines
-    n = ExecSQL("""INSERT INTO taxonomy (id, parent_id, name, id_source,lastupdate_datetime,source_desc)
-    select nextval('seq_taxonomy'),NULL,t.name,t.idtaxo,{} ,%s
+    n = ExecSQL("""INSERT INTO taxonomy_worms (id,aphia_id, parent_id,rank, name, lastupdate_datetime,source_desc)
+    select nextval('seq_taxonomy_worms'),NULL,t.name,t.idtaxo,t.rank,{} ,%s
     from temp_taxo t where idparent='-1' and idfinal is null and status='1'""".format(TSVal),["Created by "+Desctxt])
     app.logger.info("Inserted %d Root Nodes" % n)
 
     # MAJ de la table import existante
     n = ExecSQL("""UPDATE temp_taxo tt set idfinal=tf.id 
-                from taxonomy tf where tf.id_source=tt.idtaxo
+                from taxonomy_worms tf where tf.aphia_id=tt.idtaxo
                 and tt.idfinal is null and idparent='-1'""")
     app.logger.info("Updated %d inserted Root Nodes" % n)
 
@@ -83,9 +82,9 @@ def doimporttext():
         # n=ExecSQL("""INSERT INTO taxonomy (id, parent_id, name, id_source)
         #     select nextval('seq_taxonomy'),ttp.idfinal,tt.name,tt.idtaxo from temp_taxo tt join temp_taxo ttp on tt.idparent=ttp.idtaxo
         #     where tt.idfinal is null and ttp.idfinal is not null and status='1'""")
-        n = ExecSQL("""INSERT INTO taxonomy (id, parent_id, name, id_source,taxotype,lastupdate_datetime,source_desc)
-            select nextval('seq_taxonomy'),ttp.id,tt.name,tt.idtaxo,case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end,{},%s
-            from temp_taxo tt join taxonomy ttp on tt.idparent=ttp.id_source
+        n = ExecSQL("""INSERT INTO taxonomy_worms (id, parent_id, name,aphia_id,rank,taxotype,lastupdate_datetime,source_desc)
+            select nextval('seq_taxonomy_worms'),ttp.id,tt.name,tt.idtaxo,tt.rank,case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end,{},%s
+            from temp_taxo tt join taxonomy_worms ttp on tt.idparent=ttp.aphia_id
             where tt.idfinal is null and status='1'""".format(TSVal),["Created by "+Desctxt])
         if n == 0:
             app.logger.info("No more data to import")
@@ -95,21 +94,21 @@ def doimporttext():
 
         # MAJ de la table import existante
         n = ExecSQL("""UPDATE temp_taxo tt set idfinal=tf.id
-                    from taxonomy tf where tf.id_source=tt.idtaxo
+                    from taxonomy_worms tf where tf.aphia_id=tt.idtaxo
                     and tt.idfinal is null """)
         app.logger.info("Updated %d inserted Child Nodes" % n)
 
-    n = ExecSQL("""UPDATE taxonomy tf set name=tt.name,{},taxotype=case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end
+    n = ExecSQL("""UPDATE taxonomy_worms tf set name=tt.name,{},taxotype=case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end
                       ,source_desc=%s  
-                from temp_taxo tt where tf.id_source=tt.idtaxo
+                from temp_taxo tt where tf.aphia_id=tt.idtaxo
                 and tt.status='1' and  (tf.name!=tt.name
                   or tf.taxotype!=case when lower(tt.typetaxo)='taxa' then 'P' else 'M' end )
                 """.format(TSUpdate),["Updated by "+Desctxt])
     app.logger.info("Updated %d Nodes names" % n)
 
-    n = ExecSQL("""UPDATE taxonomy tfu set parent_id=sq.idfinal,{},source_desc=%s
-                from (select tf.id, ttp.idfinal from taxonomy tf
-                ,temp_taxo tt LEFT JOIN temp_taxo ttp on tt.idparent=ttp.idtaxo  where tf.id_source=tt.idtaxo
+    n = ExecSQL("""UPDATE taxonomy_worms tfu set parent_id=sq.idfinal,{},source_desc=%s
+                from (select tf.id, ttp.idfinal from taxonomy_worms tf
+                ,temp_taxo tt LEFT JOIN temp_taxo ttp on tt.idparent=ttp.idtaxo  where tf.aphia_id=tt.idtaxo
                 and tt.status='1' and coalesce(tf.parent_id,-1)!=coalesce(ttp.idfinal,-1)
                 and (ttp.idfinal is not null or tt.idparent='-1' )) sq where tfu.id=sq.id""".format(TSUpdate),["Updated by "+Desctxt])
     app.logger.info("Updated %d Nodes Parents" % n)
