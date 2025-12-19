@@ -3,7 +3,7 @@ import csv
 from appli import app,db,ntcv
 import psycopg2.extras,datetime,os
 class WormsSynchronisation(object):
-    def __init__(self,filename="/home/imev/PycharmProjects/ecotaxoserver/appli/static/tableau_ecotaxa_worms_01122025.csv"):
+    def __init__(self,filename="/home/imev/PycharmProjects/ecotaxoserver/appli/static/tableau_ecotaxa_worms_17122025_QC.csv"):
         self.serverdb = db.engine.raw_connection()
         self.filename = filename
 
@@ -257,6 +257,11 @@ class WormsSynchronisation(object):
             with db.engine.connect() as conn:
                 res = conn.execute(qry)
             conn.close()
+            # synchronise table ecotaxoserver et ecotaxa
+            deltable='psql -U postgres  -h 193.50.85.44 -p 5436 -d ecotaxa4 -c "DROP TABLE taxonomy_worms;"'
+            os.system(deltable)
+            copytable = "pg_dump -t taxonomy_worms -p 5436 -h 193.50.85.44 -U postgres  ecotaxoserver | psql -U postgres -h 193.50.85.44 -p 5436 ecotaxa4"
+            os.system(copytable)
 
 
     def compute_display_name(self, taxolist):
