@@ -258,9 +258,9 @@ class WormsSynchronisation(object):
                 res = conn.execute(qry)
             conn.close()
             # synchronise table ecotaxoserver et ecotaxa
-            deltable='psql -U postgres  -h 193.50.85.44 -p 5436 -d ecotaxa4 -c "DROP TABLE taxonomy_worms;"'
+            deltable='psql -U user2  -h host2 -p port2 -d dbtwo -c "DROP TABLE taxonomy_worms;"'
             os.system(deltable)
-            copytable = "pg_dump -t taxonomy_worms -p 5436 -h 193.50.85.44 -U postgres  ecotaxoserver | psql -U postgres -h 193.50.85.44 -p 5436 ecotaxa4"
+            copytable = "pg_dump -t taxonomy_worms -p port -h host -U user dbone | psql -U user2 -h host2 -p port2 dbtwo"
             os.system(copytable)
 
 
@@ -341,4 +341,5 @@ wormssynchro.do_worms_synchronisation()
 def branch_taxon_parent(parent_id):
     print('')
 def search_worms_parent(aphia_id):
+
     print('')
