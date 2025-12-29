@@ -2,18 +2,27 @@
 import csv
 import datetime
 import os
-from typing import NamedTuple
+from typing import NamedTuple, List, Union
 
 import psycopg2.extras
 
 from appli import app, db, ntcv
+
+BRANCHER_A_NOUVEL_ECOTAXA_ID = "Brancher à nouvel ecotaxa_id"
+DEPRECIER = "deprecier"
+CHANGER_TYPE_EN_MORPHO = "changer type en Morpho"
+AJOUTER_APHIA_ID = "Ajouter aphia_id"
+RIEN_FAIRE = "Rien"
+A_SUPPRIMER = "A supprimer"
+CHANGER_LE_PARENT = "Changer le parent"
+CREER_NOUVELLE_CATEGORIE = "Creer nouvelle categorie"
 
 WORMS_TAXO_DDL = [
     """DROP TABLE if exists taxonomy_worms;""",
     """CREATE TABLE taxonomy_worms
        (
            id                  INTEGER PRIMARY KEY,
-           aphia_id            INTEGER,
+           aphia_id            INTEGER, /* Added */
            parent_id           INTEGER,
            name                VARCHAR(100)     NOT NULL,
            taxotype            CHAR DEFAULT 'P' NOT NULL,
@@ -26,7 +35,7 @@ WORMS_TAXO_DDL = [
            id_instance         INTEGER,
            taxostatus          CHAR DEFAULT 'A' NOT NULL,
            rename_to           INTEGER,
-           rank                VARCHAR(24),
+           rank                VARCHAR(24), /* Added */
            nbrobj              INTEGER,
            nbrobjcum           INTEGER
        );""",
@@ -50,7 +59,8 @@ WORMS_TAXO_DDL = [
               nbrobjcum
        from taxonomy;""",
     """
-              DROP SEQUENCE IF EXISTS public.seq_taxonomy_worms;"""
+       DROP SEQUENCE IF EXISTS public.seq_taxonomy_worms;
+    """
     """
         CREATE SEQUENCE public.seq_taxonomy_worms
         START WITH 1
@@ -66,6 +76,8 @@ WORMS_TAXO_DDL = [
         on public.taxonomy_worms (lower(name::text));""",
     """CREATE INDEX "is_taxo_worms_parent"
         on public.taxonomy_worms (parent_id);""",
+    """ALTER TABLE public.taxonomy_worms
+        ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);""",
 ]
 
 INPUT_CSV = "static/tableau_ecotaxa_worms_17122025.csv"
@@ -86,7 +98,7 @@ class CsvRow(NamedTuple):
     details: str
     name_ecotaxa: str
     name_wrm: str
-    rank: str
+    rank: Union[str, None]
 
 
 class WormsSynchronisation2(object):
@@ -129,6 +141,13 @@ class WormsSynchronisation2(object):
         self.clone_taxo_table()
         errorfile = open("static/db_update/error.log", "w")
         actions = self.read_and_check_csv()
+        # Delete first so we don't link accidentally to deleted taxa
+        for row in actions:
+            if row.action == A_SUPPRIMER:
+                qry = "DELETE FROM taxonomy_worms WHERE id=%s;"
+                params = (row.ecotaxa_id,)
+                self.exec_sql(qry, params)
+
         verifs = {}
         i = 0
         index = 1
@@ -152,10 +171,7 @@ class WormsSynchronisation2(object):
                     row.new_parent_id_ecotaxa,
                 )
                 verifs.update(obj)
-            if row.rank == NA:
-                rank = None
-            else:
-                rank = row.rank
+
             if row.name_ecotaxa != row.name_wrm and row.name_wrm != NA:
                 newname = row.name_wrm.replace("'", "''")
             elif row.name_ecotaxa != NA:
@@ -163,7 +179,8 @@ class WormsSynchronisation2(object):
                 newname = row.name_ecotaxa.replace("'", "''")
             else:
                 newname = NA + str(row.ecotaxa_id)
-                if row.action == "Creer nouvelle categorie":
+                if row.action == CREER_NOUVELLE_CATEGORIE:
+                    assert False  # Not reachable with current CSV
                     qry = "INSERT INTO taxonomy_worms(id, name,parent_id,rank,creation_datetime,lastupdate_datetime) VALUES(%s, %s, %s, %s, %s, %s);"
                     params = (
                         row.ecotaxa_id,
@@ -173,22 +190,23 @@ class WormsSynchronisation2(object):
                         dt,
                         dt,
                     )
+                    self.exec_sql(qry)
                 else:
                     errorfile.write(" no name - " + ", ".join(map(str, row)) + "\n")
                 continue
             if (
-                row.action == "Creer nouvelle categorie"
-                or (row.action == "Rien" and int(row.ecotaxa_id) >= START_OF_WORMS)
+                row.action == CREER_NOUVELLE_CATEGORIE
+                or (row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS)
                 or row.action == "Creer nouvelle categorie && deprecier"
             ):
-                if row.action != "Creer nouvelle categorie":
-                    row = row._replace(action="Creer nouvelle categorie")
+                if row.action != CREER_NOUVELLE_CATEGORIE:
+                    row = row._replace(action=CREER_NOUVELLE_CATEGORIE)
 
                 params = {
                     "ecotaxa_id": row.ecotaxa_id,
                     "name": newname,
                     "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
-                    "rank": rank,
+                    "rank": row.rank,
                     "dt": dt,
                 }
 
@@ -220,7 +238,7 @@ class WormsSynchronisation2(object):
                     with open("skipped.txt", "a") as f:
                         print(row, file=f)  # File
                     # raise
-            elif row.action == "deprecier":
+            elif row.action == DEPRECIER:
                 if row.new_id_ecotaxa != NA:
                     qry = (
                         "UPDATE taxonomy_worms "
@@ -230,7 +248,7 @@ class WormsSynchronisation2(object):
                     params = {
                         "ecotaxa_id": row.ecotaxa_id,
                         "new_id_ecotaxa": row.new_id_ecotaxa,
-                        "rank": rank,
+                        "rank": row.rank,
                         "dt": dt,
                     }
                 else:
@@ -238,17 +256,13 @@ class WormsSynchronisation2(object):
                     errorfile.write(
                         " no rename_to defined - " + ",".join(map(str, row)) + "\n"
                     )
-            elif row.action == "A supprimer":
-                qry = "DELETE FROM taxonomy_worms " "WHERE id=%s;"
-                params = (row.ecotaxa_id,)
-                computename = False
-            elif row.action == "changer type en Morpho":
+            elif row.action == CHANGER_TYPE_EN_MORPHO:
                 qry = (
                     "UPDATE taxonomy_worms SET taxotype='M',name=%s,lastupdate_datetime=%s "
                     "WHERE id=%s;"
                 )
                 params = (newname, dt, row.ecotaxa_id)
-            elif row.action == "Ajouter aphia_id":
+            elif row.action == AJOUTER_APHIA_ID:
                 qry = (
                     "UPDATE taxonomy_worms "
                     "SET name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
@@ -258,41 +272,38 @@ class WormsSynchronisation2(object):
                     "ecotaxa_id": row.ecotaxa_id,
                     "name": newname,
                     "aphia_id": row.aphia_id,
-                    "rank": rank,
+                    "rank": row.rank,
                     "dt": dt,
                 }
-            elif row.action == "Changer le parent":
+            elif row.action == CHANGER_LE_PARENT:
                 params = {
                     "ecotaxa_id": row.ecotaxa_id,
                     "name": newname,
-                    "rank": rank,
+                    "rank": row.rank,
                     "dt": dt,
                     "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
                 }
-                if row.details.strip() == "Changer le parent":
+                if row.details == CHANGER_LE_PARENT:
                     qry = (
                         "UPDATE taxonomy_worms "
                         "SET name=%(name)s,aphia_id=%(aphia_id)s, parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                         "WHERE id=%(ecotaxa_id)s;"
                     )
                     params["aphia_id"] = row.aphia_id
-                elif row.details.strip() == "morpho parent deprécié":
+                elif row.details == "morpho parent deprécié":
                     qry = (
                         "UPDATE taxonomy_worms "
                         "SET name=%(name)s, parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                         "WHERE id=%(ecotaxa_id)s;"
                     )
-                elif row.details.strip() == "Brancher à nouvel ecotaxa_id":
+                elif row.details == BRANCHER_A_NOUVEL_ECOTAXA_ID:
                     qry = (
                         "UPDATE taxonomy_worms "
                         "SET name=%(name)s, aphia_id=%(aphia_id)s,parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                         "WHERE id=%(ecotaxa_id)s;"
                     )
                     params["aphia_id"] = row.aphia_id
-                elif (
-                    row.details.strip()
-                    == "Pas de match avec Worms mais rattache plus haut"
-                ):
+                elif row.details == "Pas de match avec Worms mais rattache plus haut":
                     qry = (
                         "UPDATE taxonomy_worms "
                         "SET name=%(name)s, parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
@@ -318,14 +329,14 @@ class WormsSynchronisation2(object):
                 params = {
                     "ecotaxa_id": row.ecotaxa_id,
                     "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
-                    "rank": rank,
+                    "rank": row.rank,
                     "dt": dt,
                 }
-            elif row.action == "Rien":
+            elif row.action == RIEN_FAIRE:
                 params = {
                     "ecotaxa_id": row.ecotaxa_id,
                     "name": newname,
-                    "rank": rank,
+                    "rank": row.rank,
                     "dt": dt,
                 }
                 if row.aphia_id != NA:
@@ -341,6 +352,8 @@ class WormsSynchronisation2(object):
                     "SET name=%(name)s,rank=%(rank)s,lastupdate_datetime=%(dt)s  {qryplus} "
                     "WHERE id=%(ecotaxa_id)s;"
                 ).format(qryplus=qryplus)
+            elif row.action == A_SUPPRIMER:
+                continue
             else:
                 qry = ""
                 errorfile.write(" no sql defined - " + ",".join(map(str, row)) + "\n")
@@ -469,38 +482,38 @@ class WormsSynchronisation2(object):
         )
 
     POSSIBLE_ACTIONS = [
-        ("Changer le parent", "NA"),
-        ("Changer le parent", "Changer le parent"),
-        ("Changer le parent", "Morpho : parent déprécié"),
-        ("Changer le parent", "Pas de match Worms (branche + haut)"),
-        ("Changer le parent", "Brancher à nouvel ecotaxa_id"),
-        ("Rien", "NA"),
-        ("Rien", "Rien"),
-        ("Rien", "Rien : Root French"),
-        ("Rien", "Rien : Morpho, parent P non déprécié"),
-        ("Rien", "Pas de match Worms (branche + haut)"),
-        ("Rien", "Enfant de French, garder hors arbre Worms"),
-        ("Rien", "Rien : child of not-living"),
-        ("Rien", "Rien : t0 or taxa not matchable"),
-        ("deprecier", "NA"),
-        ("deprecier", "deprecate to new id"),
-        ("deprecier", "temporary associate to Biota"),
-        ("deprecier", "deprecate to morpho"),
-        ("changer type en Morpho", "Changer en Morpho"),
-        ("Ajouter aphia_id", "NA"),
-        ("Creer nouvelle categorie", "NA"),
-        ("Creer nouvelle categorie", "Changer le parent"),
-        ("Creer nouvelle categorie", "Rien"),
-        ("Creer nouvelle categorie", "Brancher à nouvel ecotaxa_id"),
-        ("Creer nouvelle categorie", "Nouvel ecotaxa_id"),
+        (CHANGER_LE_PARENT, "NA"),
+        (CHANGER_LE_PARENT, CHANGER_LE_PARENT),
+        (CHANGER_LE_PARENT, "Morpho : parent déprécié"),
+        (CHANGER_LE_PARENT, "Pas de match Worms (branche + haut)"),
+        (CHANGER_LE_PARENT, BRANCHER_A_NOUVEL_ECOTAXA_ID),
+        (RIEN_FAIRE, "NA"),
+        (RIEN_FAIRE, RIEN_FAIRE),
+        (RIEN_FAIRE, "Rien : Root French"),
+        (RIEN_FAIRE, "Rien : Morpho, parent P non déprécié"),
+        (RIEN_FAIRE, "Pas de match Worms (branche + haut)"),
+        (RIEN_FAIRE, "Enfant de French, garder hors arbre Worms"),
+        (RIEN_FAIRE, "Rien : child of not-living"),
+        (RIEN_FAIRE, "Rien : t0 or taxa not matchable"),
+        (DEPRECIER, "NA"),
+        (DEPRECIER, "deprecate to new id"),
+        (DEPRECIER, "temporary associate to Biota"),
+        (DEPRECIER, "deprecate to morpho"),
+        (CHANGER_TYPE_EN_MORPHO, "Changer en Morpho"),
+        (AJOUTER_APHIA_ID, "NA"),
+        (CREER_NOUVELLE_CATEGORIE, "NA"),
+        (CREER_NOUVELLE_CATEGORIE, CHANGER_LE_PARENT),
+        (CREER_NOUVELLE_CATEGORIE, RIEN_FAIRE),
+        (CREER_NOUVELLE_CATEGORIE, BRANCHER_A_NOUVEL_ECOTAXA_ID),
+        (CREER_NOUVELLE_CATEGORIE, "Nouvel ecotaxa_id"),
         (
-            "Creer nouvelle categorie",
+            CREER_NOUVELLE_CATEGORIE,
             "Nouvel ecotaxa_id + pas de match Worms (rattaché + haut)",
         ),
-        ("A supprimer", "NA"),
+        (A_SUPPRIMER, "NA"),
     ]
 
-    def read_and_check_csv(self):
+    def read_and_check_csv(self) -> List[CsvRow]:
         rows = []
         with open(self.filename, "r") as csvfile:
             reader = csv.DictReader(csvfile)
@@ -510,7 +523,11 @@ class WormsSynchronisation2(object):
                 cleaned_row = {k: (v.strip() if v else "") for k, v in row.items()}
 
                 action, details = cleaned_row["action"], cleaned_row["details"]
-                assert (action, details) in self.POSSIBLE_ACTIONS, (action, details)
+                assert (action, details) in self.POSSIBLE_ACTIONS, (
+                    line,
+                    action,
+                    details,
+                )
                 ecotaxa_id, name_ecotaxa = (
                     int(cleaned_row["ecotaxa_id"]),
                     cleaned_row["name_ecotaxa"],
@@ -540,7 +557,7 @@ class WormsSynchronisation2(object):
                         details=details,
                         name_ecotaxa=name_ecotaxa,
                         name_wrm=name_wrm,
-                        rank=cleaned_row["rank"],
+                        rank=cleaned_row["rank"] if cleaned_row["rank"] != NA else None,
                     )
                 )
                 line += 1
