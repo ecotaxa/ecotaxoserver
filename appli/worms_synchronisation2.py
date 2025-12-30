@@ -9,9 +9,11 @@ import psycopg2.extras
 from appli import app, db, ntcv
 
 AJOUTER_APHIA_ID = "Ajouter aphia_id"  # Once in CSV, for living->Biota
+CHANGER_TYPE_EN_MORPHO = (
+    "changer type en Morpho"  # Twice in CSV, Protista + Chloroplast
+)
 BRANCHER_A_NOUVEL_ECOTAXA_ID = "Brancher à nouvel ecotaxa_id"
 DEPRECIER = "deprecier"
-CHANGER_TYPE_EN_MORPHO = "changer type en Morpho"
 RIEN_FAIRE = "Rien"
 A_SUPPRIMER = "A supprimer"
 CHANGER_LE_PARENT = "Changer le parent"
@@ -80,10 +82,10 @@ WORMS_TAXO_DDL = [
         ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);""",
     """ALTER TABLE public.taxonomy_worms
         ADD CONSTRAINT taxonomy_worms_rename_to_fkey FOREIGN KEY (rename_to) REFERENCES public.taxonomy_worms (id);""",
+    """ANALYZE public.taxonomy_worms;""",
 ]
 
-INPUT_CSV = "static/tableau_ecotaxa_worms_17122025.csv"
-INPUT_CSV = "static/tableau_ecotaxa_worms_01122025.csv"
+INPUT_CSV = "static/tableau_ecotaxa_worms_17122025_QC.csv"
 
 START_OF_WORMS = 100000
 
@@ -106,7 +108,6 @@ class CsvRow(NamedTuple):
 class WormsSynchronisation2(object):
     def __init__(self, filename):
         self.serverdb = db.engine.raw_connection()
-        self.serverdb.autocommit = True
         self.filename = filename
 
     def exec_sql(self, sql, params=None, debug=False):
@@ -116,7 +117,6 @@ class WormsSynchronisation2(object):
             except psycopg2.Error as e:
                 print("SQL problem:", e, sql, params)
                 self.serverdb = db.engine.raw_connection()
-                self.serverdb.autocommit = True
         return None
 
     def get_one(self, sql, params=None):
@@ -132,10 +132,9 @@ class WormsSynchronisation2(object):
         debug=False,
         cursor_factory=psycopg2.extras.RealDictCursor,
     ):
-        with self.serverdb.cursor(cursor_factory=cursor_factory) as cur:
+        with self.serverdb.cursor() as cur:
             cur.execute(sql, params)
             res = cur.fetchall()
-        cur.close()
         return res
 
     def do_worms_synchronisation(self):
@@ -144,11 +143,8 @@ class WormsSynchronisation2(object):
         errorfile = open("static/db_update/error.log", "w")
         actions = self.read_and_check_csv()
         # Delete first so we don't link accidentally to deleted taxa
-        for row in actions:
-            if row.action == A_SUPPRIMER:
-                qry = "DELETE FROM taxonomy_worms WHERE id=%s;"
-                params = (row.ecotaxa_id,)
-                self.exec_sql(qry, params)
+        self.delete_unused_taxa(actions)
+        db.session.commit()
 
         # verifs = {}
         i = 0
@@ -244,7 +240,7 @@ class WormsSynchronisation2(object):
             elif row.action == DEPRECIER:
                 if row.new_id_ecotaxa is not None:
                     qry = (
-                        "UPDATE taxonomy_worms "
+                        "UPDATE /*DPR*/ taxonomy_worms "
                         "SET rename_to=%(new_id_ecotaxa)s,taxostatus='D',rank=%(rank)s,lastupdate_datetime=%(dt)s "
                         "WHERE id=%(ecotaxa_id)s;"
                     )
@@ -261,13 +257,13 @@ class WormsSynchronisation2(object):
                     )
             elif row.action == CHANGER_TYPE_EN_MORPHO:
                 qry = (
-                    "UPDATE taxonomy_worms SET taxotype='M',name=%s,lastupdate_datetime=%s "
+                    "UPDATE /*CTM*/ taxonomy_worms SET taxotype='M',name=%s,lastupdate_datetime=%s "
                     "WHERE id=%s;"
                 )
                 params = (newname, dt, row.ecotaxa_id)
             elif row.action == AJOUTER_APHIA_ID:
                 qry = (
-                    "UPDATE taxonomy_worms "
+                    "UPDATE /*AAI*/ taxonomy_worms "
                     "SET name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                     "WHERE id=%(ecotaxa_id)s;"
                 )
@@ -288,27 +284,27 @@ class WormsSynchronisation2(object):
                 }
                 if row.details == CHANGER_LE_PARENT:
                     qry = (
-                        "UPDATE taxonomy_worms "
+                        "UPDATE /*CPR*/ taxonomy_worms "
                         "SET name=%(name)s,aphia_id=%(aphia_id)s,parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                         "WHERE id=%(ecotaxa_id)s;"
                     )
                     params["aphia_id"] = row.aphia_id
                 elif row.details == BRANCHER_A_NOUVEL_ECOTAXA_ID:
                     qry = (
-                        "UPDATE taxonomy_worms "
+                        "UPDATE /*BNI*/ taxonomy_worms "
                         "SET name=%(name)s,aphia_id=%(aphia_id)s,parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                         "WHERE id=%(ecotaxa_id)s;"
                     )
                     params["aphia_id"] = row.aphia_id
                 elif row.details == "morpho parent deprécié":
                     qry = (
-                        "UPDATE taxonomy_worms "
+                        "UPDATE /*MPD*/ taxonomy_worms "
                         "SET name=%(name)s, parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                         "WHERE id=%(ecotaxa_id)s;"
                     )
                 elif row.details == "Pas de match avec Worms mais rattache plus haut":
                     qry = (
-                        "UPDATE taxonomy_worms "
+                        "UPDATE /*PWR*/ taxonomy_worms "
                         "SET name=%(name)s, parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                         "WHERE id=%(ecotaxa_id)s;"
                     )
@@ -325,7 +321,7 @@ class WormsSynchronisation2(object):
                 == "Rien + Pas de match avec Worms mais rattache plus haut"
             ):
                 qry = (
-                    "UPDATE taxonomy_worms "
+                    "UPDATE /*M1*/ taxonomy_worms "
                     "SET parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
                     "WHERE id=%(ecotaxa_id)s;"
                 )
@@ -351,7 +347,7 @@ class WormsSynchronisation2(object):
                     qryplus += " ,parent_id=%(new_parent_id_ecotaxa)s"
                     params["new_parent_id_ecotaxa"] = row.new_parent_id_ecotaxa
                 qry = (
-                    "UPDATE taxonomy_worms "
+                    "UPDATE /*RIF*/ taxonomy_worms "
                     f"SET name=%(name)s,rank=%(rank)s,lastupdate_datetime=%(dt)s {qryplus} "
                     "WHERE id=%(ecotaxa_id)s;"
                 )
@@ -383,6 +379,66 @@ class WormsSynchronisation2(object):
         # os.system(deltable)
         # copytable = "pg_dump -t taxonomy_worms -p port -h host -U user dbone | psql -U user2 -h host2 -p port2 dbtwo"
         # os.system(copytable)
+
+    def delete_unused_taxa(self, actions: List[CsvRow]) -> None:
+        to_del_from_csv = [
+            row.ecotaxa_id for row in actions if row.action == A_SUPPRIMER
+        ]
+        safe_ids_deleted = set()
+        while True:
+            # Build safe list: taxa with no objects and leaves of the tree
+            qry = (
+                "SELECT id FROM taxonomy_worms "
+                "WHERE id=ANY(%s) "
+                "AND id NOT IN (SELECT parent_id FROM taxonomy_worms WHERE parent_id IS NOT NULL)"
+                "AND NOT EXISTS (SELECT 1 FROM ecotaxainststat WHERE id_taxon=id)"
+            )
+            res = self.get_all(qry, (to_del_from_csv,))
+            safe_ids = [cat_id for (cat_id,) in res]
+            print(len(to_del_from_csv), len(safe_ids))  # , safe_ids)
+
+            if len(safe_ids) == 0:
+                break
+
+            qry = "DELETE FROM taxonomy_worms WHERE id=ANY(%s)"
+            chunk = 64
+            for i in range(0, len(safe_ids), chunk):
+                params = (safe_ids[i : i + chunk],)
+                print("deleting ", i, " of ", len(safe_ids))
+                self.exec_sql(qry, params)
+            print("Deleted ", len(safe_ids), " taxons")
+            safe_ids_deleted.update(safe_ids)
+
+        print("To delete: ", len(to_del_from_csv), " safe: ", len(safe_ids_deleted))
+
+    def full_tree_check(self, to_del_from_csv: List[int]):
+        # Get full parent relationship from DB
+        parents = {}
+        children = {}
+        qry = "SELECT parent_id, id FROM taxonomy_worms"
+        res = self.get_all(qry)
+        for parent, child in res:
+            assert parent != child
+            assert child is not None
+            parents[child] = parent
+            try:
+                children[parent].append(child)
+            except KeyError:
+                children[parent] = [child]
+        for a_root in children[None]:
+            seen = {a_root}
+
+        def stream_all_children(cat_id):
+            """
+            Yields children one by one.
+            """
+            for child in children.get(cat_id, []):
+                yield child
+                yield from stream_all_children(child)
+
+        for to_del in to_del_from_csv:
+            to_del_children = [a for a in stream_all_children(to_del)]
+            # print(to_del, to_del_children)
 
     def clone_taxo_table(self) -> None:
         for qry in WORMS_TAXO_DDL:
