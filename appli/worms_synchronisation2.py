@@ -8,15 +8,19 @@ import psycopg2.extras
 
 from appli import app, db, ntcv
 
+
 AJOUTER_APHIA_ID = "Ajouter aphia_id"  # Once in CSV, for living->Biota
 CHANGER_TYPE_EN_MORPHO = (
     "changer type en Morpho"  # Twice in CSV, Protista + Chloroplast
 )
-BRANCHER_A_NOUVEL_ECOTAXA_ID = "Brancher à nouvel ecotaxa_id"
+BRANCHER_A_NOUVEL_ECOTAXA_ID = "Brancher a nouvel ecotaxa_id"
 DEPRECIER = "deprecier"
 RIEN_FAIRE = "Rien"
 A_SUPPRIMER = "A supprimer"
 CHANGER_LE_PARENT = "Changer le parent"
+PAS_MATCH_WORMS_BRANCHE_HAUT = "Pas de match Worms (branche + haut)"
+MORPHO_PARENT_DEPRECIE = "Morpho : parent deprecie"
+
 CREER_NOUVELLE_CATEGORIE = "Creer nouvelle categorie"
 
 WORMS_TAXO_DDL = [
@@ -85,7 +89,7 @@ WORMS_TAXO_DDL = [
     """ANALYZE public.taxonomy_worms;""",
 ]
 
-INPUT_CSV = "static/tableau_ecotaxa_worms_17122025_QC.csv"
+INPUT_CSV = "static/tableau_ecotaxa_worms_31122025_QC.csv"
 
 START_OF_WORMS = 100000
 
@@ -94,6 +98,7 @@ NA = "NA"
 
 class CsvRow(NamedTuple):
     ecotaxa_id: int
+    parent_id: Union[int, None]  # For existing categories
     new_id_ecotaxa: Union[int, None]
     new_parent_id_ecotaxa: Union[int, None]
     aphia_id: Union[int, None]
@@ -101,7 +106,7 @@ class CsvRow(NamedTuple):
     action: str
     details: str
     name_ecotaxa: str
-    name_wrm: str
+    name_wrm: str  # NA or real name
     rank: Union[str, None]
 
 
@@ -123,7 +128,7 @@ class WormsSynchronisation2(object):
         with self.serverdb.cursor() as cur:
             cur.execute(sql, params)
             res = cur.fetchone()
-        return res[0] if res else None
+        return res
 
     def get_all(
         self,
@@ -147,15 +152,18 @@ class WormsSynchronisation2(object):
         db.session.commit()
 
         # verifs = {}
-        i = 0
-        index = 1
+        i = 1
+        # index = 1
         for row in actions:
             i += 1
+            if row.action == A_SUPPRIMER:
+                continue
+
             computename = True
             dt = datetime.datetime.now(datetime.timezone.utc)
 
-            if i > 0 and i == index * 50000:
-                index += 1
+            # if i > 0 and i == index * 50000:
+            #     index += 1
 
             filesql = "static/db_update/" + row.action.replace(" ", "_") + ".sql"
             if os.path.exists(filesql):
@@ -172,14 +180,16 @@ class WormsSynchronisation2(object):
             #     verifs.update(obj)
 
             if row.name_ecotaxa != row.name_wrm and row.name_wrm != NA:
-                newname = row.name_wrm.replace("'", "''")
+                newname = row.name_wrm
             elif row.name_ecotaxa != NA:
                 # No new name
-                newname = row.name_ecotaxa.replace("'", "''")
+                newname = row.name_ecotaxa
             else:
-                newname = NA + str(row.ecotaxa_id)
+                assert (
+                    False
+                ), i  # Not reachable with current CSV, some double NAs are in "A supprimer"
                 if row.action == CREER_NOUVELLE_CATEGORIE:
-                    assert False  # Not reachable with current CSV
+                    newname = NA + str(row.ecotaxa_id)
                     qry = "INSERT INTO taxonomy_worms(id, name,parent_id,rank,creation_datetime,lastupdate_datetime) VALUES(%s, %s, %s, %s, %s, %s);"
                     params = (
                         row.ecotaxa_id,
@@ -193,6 +203,7 @@ class WormsSynchronisation2(object):
                 else:
                     errorfile.write(" no name - " + ", ".join(map(str, row)) + "\n")
                 continue
+            assert newname != NA
             if (
                 row.action == CREER_NOUVELLE_CATEGORIE
                 or (row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS)
@@ -205,7 +216,6 @@ class WormsSynchronisation2(object):
                     "ecotaxa_id": row.ecotaxa_id,
                     "name": newname,
                     "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
-                    "rank": row.rank,
                     "dt": dt,
                 }
 
@@ -223,20 +233,16 @@ class WormsSynchronisation2(object):
 
                 if row.aphia_id is not None:
                     params["aphia_id"] = row.aphia_id
+                    params["rank"] = row.rank
                     qry = (
-                        f"INSERT INTO taxonomy_worms(id,aphia_id,name,parent_id,rank,creation_datetime,lastupdate_datetime {pluskeys}) "
+                        f"INSERT /*WCR{i}*/ INTO taxonomy_worms(id,aphia_id,name,parent_id,rank,creation_datetime,lastupdate_datetime {pluskeys}) "
                         f"VALUES(%(ecotaxa_id)s,%(aphia_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(rank)s,%(dt)s,%(dt)s  {plusvalues}); "
                     )
-                elif newname != NA:
+                else:  # Non-WoRMS creation
                     qry = (
-                        f"INSERT INTO taxonomy_worms(id, name,parent_id,rank,creation_datetime,lastupdate_datetime {pluskeys}) "
-                        f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(rank)s,%(dt)s,%(dt)s {plusvalues}); "
+                        f"INSERT /*NWC{i}*/ INTO taxonomy_worms(id,name,parent_id,creation_datetime,lastupdate_datetime {pluskeys}) "
+                        f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(dt)s,%(dt)s {plusvalues}); "
                     )
-                else:
-                    qry = ""
-                    with open("skipped.txt", "a") as f:
-                        print(row, file=f)  # File
-                    # raise
             elif row.action == DEPRECIER:
                 if row.new_id_ecotaxa is not None:
                     qry = (
@@ -277,42 +283,33 @@ class WormsSynchronisation2(object):
             elif row.action == CHANGER_LE_PARENT:
                 params = {
                     "ecotaxa_id": row.ecotaxa_id,
-                    "name": newname,
-                    "rank": row.rank,
                     "dt": dt,
                     "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
                 }
+                # Details are for sanity check
                 if row.details == CHANGER_LE_PARENT:
-                    qry = (
-                        "UPDATE /*CPR*/ taxonomy_worms "
-                        "SET name=%(name)s,aphia_id=%(aphia_id)s,parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
-                        "WHERE id=%(ecotaxa_id)s;"
-                    )
-                    params["aphia_id"] = row.aphia_id
+                    pass
                 elif row.details == BRANCHER_A_NOUVEL_ECOTAXA_ID:
-                    qry = (
-                        "UPDATE /*BNI*/ taxonomy_worms "
-                        "SET name=%(name)s,aphia_id=%(aphia_id)s,parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
-                        "WHERE id=%(ecotaxa_id)s;"
-                    )
+                    if i not in (5100,):
+                        assert row.new_parent_id_ecotaxa is not None, i
+                        assert row.new_parent_id_ecotaxa > START_OF_WORMS, i
+                elif row.details == MORPHO_PARENT_DEPRECIE:
+                    assert row.taxotype == "M", i
+                elif row.details == PAS_MATCH_WORMS_BRANCHE_HAUT:
+                    assert row.aphia_id is None, i
+
+                qryplus = ""
+                if row.aphia_id is not None:
+                    qryplus += ",name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s"
+                    params["name"] = row.name_wrm
                     params["aphia_id"] = row.aphia_id
-                elif row.details == "morpho parent deprécié":
-                    qry = (
-                        "UPDATE /*MPD*/ taxonomy_worms "
-                        "SET name=%(name)s, parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
-                        "WHERE id=%(ecotaxa_id)s;"
-                    )
-                elif row.details == "Pas de match avec Worms mais rattache plus haut":
-                    qry = (
-                        "UPDATE /*PWR*/ taxonomy_worms "
-                        "SET name=%(name)s, parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
-                        "WHERE id=%(ecotaxa_id)s;"
-                    )
-                else:
-                    qry = ""
-                    with open("skipped.txt", "a") as f:
-                        print(row, file=f)  # File
-                    # raise row
+                    params["rank"] = row.rank
+
+                qry = (
+                    f"UPDATE /*CPR{i}*/ taxonomy_worms "
+                    f"SET parent_id=%(new_parent_id_ecotaxa)s,lastupdate_datetime=%(dt)s {qryplus} "
+                    "WHERE id=%(ecotaxa_id)s;"
+                )
 
             elif (
                 row.action
@@ -332,27 +329,27 @@ class WormsSynchronisation2(object):
                     "dt": dt,
                 }
             elif row.action == RIEN_FAIRE:
+                assert newname is not None, i
+                # assert row.parent_id == row.new_parent_id_ecotaxa, i
                 params = {
                     "ecotaxa_id": row.ecotaxa_id,
                     "name": newname,
-                    "rank": row.rank,
                     "dt": dt,
                 }
+                qryplus = ""
                 if row.aphia_id is not None:
-                    qryplus = ",aphia_id=%(aphia_id)s"
+                    qryplus += ",aphia_id=%(aphia_id)s,rank=%(rank)s"
                     params["aphia_id"] = row.aphia_id
-                else:
-                    qryplus = ""
-                if row.new_parent_id_ecotaxa is not None:
+                    params["rank"] = row.rank
+                if row.parent_id != row.new_parent_id_ecotaxa:
+                    print("Different parent line", i)
                     qryplus += " ,parent_id=%(new_parent_id_ecotaxa)s"
                     params["new_parent_id_ecotaxa"] = row.new_parent_id_ecotaxa
                 qry = (
-                    "UPDATE /*RIF*/ taxonomy_worms "
-                    f"SET name=%(name)s,rank=%(rank)s,lastupdate_datetime=%(dt)s {qryplus} "
+                    f"UPDATE /*RIF{i}*/ taxonomy_worms "
+                    f"SET name=%(name)s,lastupdate_datetime=%(dt)s {qryplus} "
                     "WHERE id=%(ecotaxa_id)s;"
                 )
-            elif row.action == A_SUPPRIMER:
-                continue
             else:
                 qry = ""
                 errorfile.write(" no sql defined - " + ",".join(map(str, row)) + "\n")
@@ -395,7 +392,7 @@ class WormsSynchronisation2(object):
             )
             res = self.get_all(qry, (to_del_from_csv,))
             safe_ids = [cat_id for (cat_id,) in res]
-            print(len(to_del_from_csv), len(safe_ids))  # , safe_ids)
+            print("About to delete safely", len(safe_ids))
 
             if len(safe_ids) == 0:
                 break
@@ -404,15 +401,15 @@ class WormsSynchronisation2(object):
             chunk = 64
             for i in range(0, len(safe_ids), chunk):
                 params = (safe_ids[i : i + chunk],)
-                print("deleting ", i, " of ", len(safe_ids))
+                # print("deleting ", i, " of ", len(safe_ids))
                 self.exec_sql(qry, params)
-            print("Deleted ", len(safe_ids), " taxons")
+            # print("Deleted ", len(safe_ids), " taxons")
             safe_ids_deleted.update(safe_ids)
 
         print("To delete: ", len(to_del_from_csv), " safe: ", len(safe_ids_deleted))
 
     def full_tree_check(self, to_del_from_csv: List[int]):
-        # Get full parent relationship from DB
+        # Get a full parent relationship from DB
         parents = {}
         children = {}
         qry = "SELECT parent_id, id FROM taxonomy_worms"
@@ -543,14 +540,14 @@ class WormsSynchronisation2(object):
     POSSIBLE_ACTIONS = [
         (CHANGER_LE_PARENT, "NA"),
         (CHANGER_LE_PARENT, CHANGER_LE_PARENT),
-        (CHANGER_LE_PARENT, "Morpho : parent déprécié"),
-        (CHANGER_LE_PARENT, "Pas de match Worms (branche + haut)"),
+        (CHANGER_LE_PARENT, MORPHO_PARENT_DEPRECIE),
+        (CHANGER_LE_PARENT, PAS_MATCH_WORMS_BRANCHE_HAUT),
         (CHANGER_LE_PARENT, BRANCHER_A_NOUVEL_ECOTAXA_ID),
         (RIEN_FAIRE, "NA"),
         (RIEN_FAIRE, RIEN_FAIRE),
         (RIEN_FAIRE, "Rien : Root French"),
-        (RIEN_FAIRE, "Rien : Morpho, parent P non déprécié"),
-        (RIEN_FAIRE, "Pas de match Worms (branche + haut)"),
+        (RIEN_FAIRE, "Rien : Morpho, parent P non deprecie"),
+        (RIEN_FAIRE, PAS_MATCH_WORMS_BRANCHE_HAUT),
         (RIEN_FAIRE, "Enfant de French, garder hors arbre Worms"),
         (RIEN_FAIRE, "Rien : child of not-living"),
         (RIEN_FAIRE, "Rien : t0 or taxa not matchable"),
@@ -567,13 +564,52 @@ class WormsSynchronisation2(object):
         (CREER_NOUVELLE_CATEGORIE, "Nouvel ecotaxa_id"),
         (
             CREER_NOUVELLE_CATEGORIE,
-            "Nouvel ecotaxa_id + pas de match Worms (rattaché + haut)",
+            "Nouvel ecotaxa_id + pas de match Worms (rattache + haut)",
         ),
         (A_SUPPRIMER, "NA"),
     ]
+    POSSIBLE_RANKS = (
+        "Kingdom",
+        "Subkingdom",
+        "Infrakingdom",
+        "Phylum (Division)",
+        "Phylum",
+        "Subphylum",
+        "Infraphylum",
+        "Parvphylum",
+        "Superclass",
+        "Class",
+        "Subclass",
+        "Infraclass",
+        "Superorder",
+        "Order",
+        "Suborder",
+        "Infraorder",
+        "Superfamily",
+        "Family",
+        "Subfamily",
+        "Tribe",
+        "Genus",
+        "Subgenus",
+        "Species",
+        "Subspecies",
+        "Variety",
+        "Superdomain",
+        "Gigaclass",
+        "Section",
+        "Forma",
+        "Subphylum (Subdivision)",
+        "Superphylum",
+        "Parvorder",
+        "Subsection",
+        "Subterclass",
+        "Epifamily",
+        "Megaclass",
+    )
 
     def read_and_check_csv(self) -> List[CsvRow]:
         rows = []
+        trans_table = str.maketrans({"é": "e", "à": "a", "ç": "c", "ä": "a"})
         with open(self.filename, "r") as csvfile:
             reader = csv.DictReader(csvfile)
             line = 2
@@ -587,21 +623,30 @@ class WormsSynchronisation2(object):
                     action,
                     details,
                 )
-                ecotaxa_id, name_ecotaxa = (
+                ecotaxa_id, name_ecotaxa, taxotype = (
                     int(cleaned_row["ecotaxa_id"]),
                     cleaned_row["name_ecotaxa"],
+                    cleaned_row["taxotype"],
                 )
+                parent_id = None
                 if ecotaxa_id < START_OF_WORMS:
                     res = self.get_one(
-                        "select name from taxonomy_worms where id = %s", (ecotaxa_id,)
+                        "select name, parent_id from taxonomy_worms where id = %s",
+                        (ecotaxa_id,),
                     )
-                    if res != name_ecotaxa:
-                        print(
-                            f"XLS not present line {line}",
-                            res,
-                            ecotaxa_id,
-                            name_ecotaxa,
-                        )
+                    if res:
+                        db_name = res[0]
+                        db_name = db_name.translate(trans_table)
+                        if db_name != name_ecotaxa:
+                            print(
+                                f"XLS not present line {line}",
+                                res,
+                                ecotaxa_id,
+                                name_ecotaxa,
+                            )
+                        parent_id = res[1]
+                    else:
+                        print("Not found taxon ID", ecotaxa_id, name_ecotaxa)
                 aphia_id, name_wrm, rank = (
                     cleaned_row["aphia_id"],
                     cleaned_row["name_wrm"],
@@ -612,11 +657,25 @@ class WormsSynchronisation2(object):
                 ):
                     pass
                 else:
-                    print(
-                        f"XLS worms inconsistent line {line}", aphia_id, name_wrm, rank
-                    )
+                    if (
+                        aphia_id == NA
+                        and name_wrm != NA
+                        and rank == NA
+                        and taxotype == "M"
+                    ):
+                        # Special case for Morpho renaming
+                        pass
+                    else:
+                        print(
+                            f"XLS worms inconsistent line {line}",
+                            aphia_id,
+                            name_wrm,
+                            rank,
+                        )
                 aphia_id = int(aphia_id) if aphia_id != NA else None
                 rank = rank if rank != NA else None
+                if rank is not None:
+                    assert rank in self.POSSIBLE_RANKS, (line, rank)
 
                 new_id_ecotaxa = (
                     int(cleaned_row["new_id_ecotaxa"])
@@ -629,13 +688,17 @@ class WormsSynchronisation2(object):
                     else None
                 )
 
+                assert "'" not in name_wrm, (line, name_wrm)
+                # assert name_ecotaxa != NA, (line, name_ecotaxa)
+
                 rows.append(
                     CsvRow(
                         ecotaxa_id=ecotaxa_id,
+                        parent_id=parent_id,
                         new_id_ecotaxa=new_id_ecotaxa,
                         new_parent_id_ecotaxa=new_parent_id_ecotaxa,
                         aphia_id=aphia_id,
-                        taxotype=cleaned_row["taxotype"],
+                        taxotype=taxotype,
                         action=action,
                         details=details,
                         name_ecotaxa=name_ecotaxa,
