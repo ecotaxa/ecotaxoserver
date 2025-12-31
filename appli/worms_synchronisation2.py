@@ -8,7 +8,6 @@ import psycopg2.extras
 
 from appli import app, db, ntcv
 
-
 AJOUTER_APHIA_ID = "Ajouter aphia_id"  # Once in CSV, for living->Biota
 CHANGER_TYPE_EN_MORPHO = (
     "changer type en Morpho"  # Twice in CSV, Protista + Chloroplast
@@ -22,6 +21,9 @@ PAS_MATCH_WORMS_BRANCHE_HAUT = "Pas de match Worms (branche + haut)"
 MORPHO_PARENT_DEPRECIE = "Morpho : parent deprecie"
 
 CREER_NOUVELLE_CATEGORIE = "Creer nouvelle categorie"
+
+PARENT_ID_CONSTRAINT = """ALTER TABLE public.taxonomy_worms
+        ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);"""
 
 WORMS_TAXO_DDL = [
     """DROP TABLE if exists taxonomy_worms;""",
@@ -76,14 +78,13 @@ WORMS_TAXO_DDL = [
         CACHE 1
         OWNED BY taxonomy_worms.id;""",
     """ALTER TABLE public.seq_taxonomy_worms OWNER TO postgres;""",
-    """CREATE UNIQUE INDEX is_taxo_worms_parent_name
-        on public.taxonomy_worms (parent_id, name);""",
+    # """CREATE UNIQUE INDEX is_taxo_worms_parent_name
+    #     on public.taxonomy_worms (parent_id, name);""",
     """CREATE INDEX "is_taxo_worms_name_lower"
         on public.taxonomy_worms (lower(name::text));""",
     """CREATE INDEX "is_taxo_worms_parent"
         on public.taxonomy_worms (parent_id);""",
-    """ALTER TABLE public.taxonomy_worms
-        ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);""",
+    PARENT_ID_CONSTRAINT,
     """ALTER TABLE public.taxonomy_worms
         ADD CONSTRAINT taxonomy_worms_rename_to_fkey FOREIGN KEY (rename_to) REFERENCES public.taxonomy_worms (id);""",
     """ANALYZE public.taxonomy_worms;""",
@@ -119,6 +120,7 @@ class WormsSynchronisation2(object):
         with self.serverdb.cursor() as cur:
             try:
                 cur.execute(sql, params)
+                self.serverdb.commit()
             except psycopg2.Error as e:
                 print("SQL problem:", e, sql, params)
                 self.serverdb = db.engine.raw_connection()
@@ -134,8 +136,6 @@ class WormsSynchronisation2(object):
         self,
         sql,
         params=None,
-        debug=False,
-        cursor_factory=psycopg2.extras.RealDictCursor,
     ):
         with self.serverdb.cursor() as cur:
             cur.execute(sql, params)
@@ -148,8 +148,18 @@ class WormsSynchronisation2(object):
         errorfile = open("static/db_update/error.log", "w")
         actions = self.read_and_check_csv()
         # Delete first so we don't link accidentally to deleted taxa
-        self.delete_unused_taxa(actions)
-        db.session.commit()
+        # self.delete_unused_taxa(actions)
+
+        self.exec_sql(
+            "ALTER TABLE taxonomy_worms DROP CONSTRAINT taxonomy_worms_parent_id_fkey"
+        )
+        i = 1
+        for row in actions:
+            i += 1
+            if row.action != CREER_NOUVELLE_CATEGORIE:
+                continue
+            self.create_row(row, i)
+        self.exec_sql(PARENT_ID_CONSTRAINT)
 
         # verifs = {}
         i = 1
@@ -209,6 +219,7 @@ class WormsSynchronisation2(object):
                 or (row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS)
                 or row.action == "Creer nouvelle categorie && deprecier"
             ):
+                continue
                 if row.action != CREER_NOUVELLE_CATEGORIE:
                     row = row._replace(action=CREER_NOUVELLE_CATEGORIE)
 
@@ -232,35 +243,33 @@ class WormsSynchronisation2(object):
                     plusvalues = ""
 
                 if row.aphia_id is not None:
-                    params["aphia_id"] = row.aphia_id
-                    params["rank"] = row.rank
                     qry = (
                         f"INSERT /*WCR{i}*/ INTO taxonomy_worms(id,aphia_id,name,parent_id,rank,creation_datetime,lastupdate_datetime {pluskeys}) "
                         f"VALUES(%(ecotaxa_id)s,%(aphia_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(rank)s,%(dt)s,%(dt)s  {plusvalues}); "
                     )
+                    params["aphia_id"] = row.aphia_id
+                    params["rank"] = row.rank
                 else:  # Non-WoRMS creation
                     qry = (
                         f"INSERT /*NWC{i}*/ INTO taxonomy_worms(id,name,parent_id,creation_datetime,lastupdate_datetime {pluskeys}) "
                         f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(dt)s,%(dt)s {plusvalues}); "
                     )
             elif row.action == DEPRECIER:
-                if row.new_id_ecotaxa is not None:
-                    qry = (
-                        "UPDATE /*DPR*/ taxonomy_worms "
-                        "SET rename_to=%(new_id_ecotaxa)s,taxostatus='D',rank=%(rank)s,lastupdate_datetime=%(dt)s "
-                        "WHERE id=%(ecotaxa_id)s;"
-                    )
-                    params = {
-                        "ecotaxa_id": row.ecotaxa_id,
-                        "new_id_ecotaxa": row.new_id_ecotaxa,
-                        "rank": row.rank,
-                        "dt": dt,
-                    }
-                else:
-                    qry = ""
-                    errorfile.write(
-                        " no rename_to defined - " + ",".join(map(str, row)) + "\n"
-                    )
+                # Note: In this case, WoRMS triplet is the _target_ taxon
+                assert row.new_id_ecotaxa is not None
+                # if row.name_wrm == row.name_ecotaxa:
+                #     print(f"line {i}: Should not deprecate to same {row.name_wrm}")
+                qry = (
+                    "UPDATE /*DPR*/ taxonomy_worms "
+                    "SET rename_to=%(new_id_ecotaxa)s,taxostatus='D',rank=%(rank)s,lastupdate_datetime=%(dt)s "
+                    "WHERE id=%(ecotaxa_id)s;"
+                )
+                params = {
+                    "ecotaxa_id": row.ecotaxa_id,
+                    "new_id_ecotaxa": row.new_id_ecotaxa,
+                    "rank": row.rank,
+                    "dt": dt,
+                }
             elif row.action == CHANGER_TYPE_EN_MORPHO:
                 qry = (
                     "UPDATE /*CTM*/ taxonomy_worms SET taxotype='M',name=%s,lastupdate_datetime=%s "
@@ -342,7 +351,7 @@ class WormsSynchronisation2(object):
                     params["aphia_id"] = row.aphia_id
                     params["rank"] = row.rank
                 if row.parent_id != row.new_parent_id_ecotaxa:
-                    print("Different parent line", i)
+                    # print("Different parent line", i)
                     qryplus += " ,parent_id=%(new_parent_id_ecotaxa)s"
                     params["new_parent_id_ecotaxa"] = row.new_parent_id_ecotaxa
                 qry = (
@@ -364,18 +373,42 @@ class WormsSynchronisation2(object):
             if computename:
                 self.compute_display_name([int(row.ecotaxa_id)])
 
-        db.session.commit()
-
         qry = "SELECT setval('seq_taxonomy_worms', COALESCE((SELECT MAX(id) FROM taxonomy_worms), 1), false);"
-        with db.engine.connect() as conn:
-            res = conn.execute(qry)
-        conn.close()
+        self.exec_sql(qry)
+
+        self.serverdb.commit()
 
         # synchronise table ecotaxoserver et ecotaxa
         # deltable = 'psql -U user2  -h host2 -p port2 -d dbtwo -c "DROP TABLE taxonomy_worms;"'
         # os.system(deltable)
         # copytable = "pg_dump -t taxonomy_worms -p port -h host -U user dbone | psql -U user2 -h host2 -p port2 dbtwo"
         # os.system(copytable)
+
+    def create_row(self, row, i):
+        dt = datetime.datetime.now(datetime.timezone.utc)
+        params = {
+            "ecotaxa_id": row.ecotaxa_id,
+            "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
+            "dt": dt,
+        }
+        pluskeys = ""
+        plusvalues = ""
+        if row.aphia_id is not None:
+            qry = (
+                f"INSERT /*WCR{i}*/ INTO taxonomy_worms(id,aphia_id,name,parent_id,rank,creation_datetime,lastupdate_datetime {pluskeys}) "
+                f"VALUES(%(ecotaxa_id)s,%(aphia_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(rank)s,%(dt)s,%(dt)s  {plusvalues}); "
+            )
+            params["name"] = row.name_wrm
+            params["aphia_id"] = row.aphia_id
+            params["rank"] = row.rank
+        else:  # Non-WoRMS creation
+            qry = (
+                f"INSERT /*NWC{i}*/ INTO taxonomy_worms(id,name,parent_id,creation_datetime,lastupdate_datetime {pluskeys}) "
+                f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(dt)s,%(dt)s {plusvalues}); "
+            )
+            params["name"] = row.name_ecotaxa
+        self.exec_sql(qry, params)
+        self.serverdb.commit()
 
     def delete_unused_taxa(self, actions: List[CsvRow]) -> None:
         to_del_from_csv = [
@@ -394,6 +427,7 @@ class WormsSynchronisation2(object):
             safe_ids = [cat_id for (cat_id,) in res]
             print("About to delete safely", len(safe_ids))
 
+            self.serverdb.commit()
             if len(safe_ids) == 0:
                 break
 
@@ -440,6 +474,7 @@ class WormsSynchronisation2(object):
     def clone_taxo_table(self) -> None:
         for qry in WORMS_TAXO_DDL:
             self.exec_sql(qry)
+        self.serverdb.commit()
         return None
 
     def compute_display_name(self, taxolist):
