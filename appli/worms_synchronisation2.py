@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import csv
-import datetime
 import os
-from typing import NamedTuple, List, Union
+from datetime import datetime, timezone
+from typing import NamedTuple, List, Union, Dict, Tuple
 
 import psycopg2.extras
 
@@ -19,11 +19,12 @@ A_SUPPRIMER = "A supprimer"
 CHANGER_LE_PARENT = "Changer le parent"
 PAS_MATCH_WORMS_BRANCHE_HAUT = "Pas de match Worms (branche + haut)"
 MORPHO_PARENT_DEPRECIE = "Morpho : parent deprecie"
-
 CREER_NOUVELLE_CATEGORIE = "Creer nouvelle categorie"
 
 PARENT_ID_CONSTRAINT = """ALTER TABLE public.taxonomy_worms
-        ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);"""
+    ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);"""
+
+ParamDictT = Dict[str, Union[int, str, datetime]]
 
 WORMS_TAXO_DDL = [
     """DROP TABLE if exists taxonomy_worms;""",
@@ -124,6 +125,9 @@ class WormsSynchronisation2(object):
             except psycopg2.Error as e:
                 print("SQL problem:", e, sql, params)
                 self.serverdb = db.engine.raw_connection()
+            except KeyError as e:
+                print("Code problem:", e, sql, params)
+                self.serverdb = db.engine.raw_connection()
         return None
 
     def get_one(self, sql, params=None):
@@ -153,24 +157,21 @@ class WormsSynchronisation2(object):
         self.exec_sql(
             "ALTER TABLE taxonomy_worms DROP CONSTRAINT taxonomy_worms_parent_id_fkey"
         )
-        i = 1
-        for row in actions:
-            i += 1
+        for i, row in enumerate(actions, 2):
             if row.action != CREER_NOUVELLE_CATEGORIE:
                 continue
-            self.create_row(row, i)
+            dt = datetime.now(timezone.utc)
+            qry, params = self.create_row(row, dt, i)
+            self.exec_sql(qry, params)
+        self.serverdb.commit()
         self.exec_sql(PARENT_ID_CONSTRAINT)
 
-        # verifs = {}
-        i = 1
-        # index = 1
-        for row in actions:
-            i += 1
+        for i, row in enumerate(actions, 2):
             if row.action == A_SUPPRIMER:
                 continue
 
             computename = True
-            dt = datetime.datetime.now(datetime.timezone.utc)
+            dt = datetime.now(timezone.utc)
 
             # if i > 0 and i == index * 50000:
             #     index += 1
@@ -215,10 +216,9 @@ class WormsSynchronisation2(object):
                 continue
             assert newname != NA
             if (
-                row.action == CREER_NOUVELLE_CATEGORIE
-                or (row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS)
-                or row.action == "Creer nouvelle categorie && deprecier"
-            ):
+                row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS
+            ) or row.action == "Creer nouvelle categorie && deprecier":
+                assert False
                 continue
                 if row.action != CREER_NOUVELLE_CATEGORIE:
                     row = row._replace(action=CREER_NOUVELLE_CATEGORIE)
@@ -255,77 +255,20 @@ class WormsSynchronisation2(object):
                         f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(dt)s,%(dt)s {plusvalues}); "
                     )
             elif row.action == DEPRECIER:
-                # Note: In this case, WoRMS triplet is the _target_ taxon
-                assert row.new_id_ecotaxa is not None
-                # if row.name_wrm == row.name_ecotaxa:
-                #     print(f"line {i}: Should not deprecate to same {row.name_wrm}")
-                qry = (
-                    "UPDATE /*DPR*/ taxonomy_worms "
-                    "SET rename_to=%(new_id_ecotaxa)s,taxostatus='D',rank=%(rank)s,lastupdate_datetime=%(dt)s "
-                    "WHERE id=%(ecotaxa_id)s;"
-                )
-                params = {
-                    "ecotaxa_id": row.ecotaxa_id,
-                    "new_id_ecotaxa": row.new_id_ecotaxa,
-                    "rank": row.rank,
-                    "dt": dt,
-                }
+                qry, params = self.deprecate(row, dt, i)
             elif row.action == CHANGER_TYPE_EN_MORPHO:
-                qry = (
-                    "UPDATE /*CTM*/ taxonomy_worms SET taxotype='M',name=%s,lastupdate_datetime=%s "
-                    "WHERE id=%s;"
-                )
-                params = (newname, dt, row.ecotaxa_id)
+                qry, params = self.change_to_morpho(row, dt, i)
             elif row.action == AJOUTER_APHIA_ID:
-                qry = (
-                    "UPDATE /*AAI*/ taxonomy_worms "
-                    "SET name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
-                    "WHERE id=%(ecotaxa_id)s;"
-                )
-                params = {
-                    "ecotaxa_id": row.ecotaxa_id,
-                    "name": newname,
-                    "aphia_id": row.aphia_id,
-                    "rank": row.rank,
-                    "dt": dt,
-                }
+                qry, params = self.add_aphia_id(row, dt, i)
             elif row.action == CHANGER_LE_PARENT:
-                params = {
-                    "ecotaxa_id": row.ecotaxa_id,
-                    "dt": dt,
-                    "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
-                }
-                # Details are for sanity check
-                if row.details == CHANGER_LE_PARENT:
-                    pass
-                elif row.details == BRANCHER_A_NOUVEL_ECOTAXA_ID:
-                    if i not in (5100,):
-                        assert row.new_parent_id_ecotaxa is not None, i
-                        assert row.new_parent_id_ecotaxa > START_OF_WORMS, i
-                elif row.details == MORPHO_PARENT_DEPRECIE:
-                    assert row.taxotype == "M", i
-                elif row.details == PAS_MATCH_WORMS_BRANCHE_HAUT:
-                    assert row.aphia_id is None, i
-
-                qryplus = ""
-                if row.aphia_id is not None:
-                    qryplus += ",name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s"
-                    params["name"] = row.name_wrm
-                    params["aphia_id"] = row.aphia_id
-                    params["rank"] = row.rank
-
-                qry = (
-                    f"UPDATE /*CPR{i}*/ taxonomy_worms "
-                    f"SET parent_id=%(new_parent_id_ecotaxa)s,lastupdate_datetime=%(dt)s {qryplus} "
-                    "WHERE id=%(ecotaxa_id)s;"
-                )
-
+                qry, params = self.change_parent(row, dt, i)
             elif (
                 row.action
                 == "Changer le parent + Pas de match avec Worms mais rattache plus haut"
                 or row.action
                 == "Rien + Pas de match avec Worms mais rattache plus haut"
             ):
+                assert False
                 qry = (
                     "UPDATE /*M1*/ taxonomy_worms "
                     "SET parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
@@ -338,27 +281,7 @@ class WormsSynchronisation2(object):
                     "dt": dt,
                 }
             elif row.action == RIEN_FAIRE:
-                assert newname is not None, i
-                # assert row.parent_id == row.new_parent_id_ecotaxa, i
-                params = {
-                    "ecotaxa_id": row.ecotaxa_id,
-                    "name": newname,
-                    "dt": dt,
-                }
-                qryplus = ""
-                if row.aphia_id is not None:
-                    qryplus += ",aphia_id=%(aphia_id)s,rank=%(rank)s"
-                    params["aphia_id"] = row.aphia_id
-                    params["rank"] = row.rank
-                if row.parent_id != row.new_parent_id_ecotaxa:
-                    # print("Different parent line", i)
-                    qryplus += " ,parent_id=%(new_parent_id_ecotaxa)s"
-                    params["new_parent_id_ecotaxa"] = row.new_parent_id_ecotaxa
-                qry = (
-                    f"UPDATE /*RIF{i}*/ taxonomy_worms "
-                    f"SET name=%(name)s,lastupdate_datetime=%(dt)s {qryplus} "
-                    "WHERE id=%(ecotaxa_id)s;"
-                )
+                qry, params = self.do_nothing(row, dt, i)
             else:
                 qry = ""
                 errorfile.write(" no sql defined - " + ",".join(map(str, row)) + "\n")
@@ -370,11 +293,11 @@ class WormsSynchronisation2(object):
                         final_qry = log_cur.mogrify(qry, params).decode("utf-8")
                         actionfile.write(final_qry + "\n")
                 qry = ""  # prevent double execution later
-            if computename:
-                self.compute_display_name([int(row.ecotaxa_id)])
 
         qry = "SELECT setval('seq_taxonomy_worms', COALESCE((SELECT MAX(id) FROM taxonomy_worms), 1), false);"
         self.exec_sql(qry)
+
+        self.compute_display_names()
 
         self.serverdb.commit()
 
@@ -384,9 +307,119 @@ class WormsSynchronisation2(object):
         # copytable = "pg_dump -t taxonomy_worms -p port -h host -U user dbone | psql -U user2 -h host2 -p port2 dbtwo"
         # os.system(copytable)
 
-    def create_row(self, row, i):
-        dt = datetime.datetime.now(datetime.timezone.utc)
+    @staticmethod
+    def do_nothing(row: CsvRow, dt: datetime, i: int) -> Tuple[str, ParamDictT]:
+        # Do nothing _structural_ but still create WoRMS facet
+        if row.new_id_ecotaxa is not None:
+            assert row.taxotype == "M"
+            # Implied, it's a deprecation
+            return WormsSynchronisation2.deprecate(row, dt, i)
+        if row.parent_id != row.new_parent_id_ecotaxa:
+            print(
+                f"Different parent {row.parent_id} vs {row.new_parent_id_ecotaxa}, line {i}"
+            )
+        if row.aphia_id is None:
+            return "", {}
+        params: ParamDictT = {
+            "ecotaxa_id": row.ecotaxa_id,
+            "dt": dt,
+        }
+        qryplus = ",name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s"
+        params["name"] = row.name_wrm
+        params["aphia_id"] = row.aphia_id
+        params["rank"] = row.rank
+        qry = (
+            f"UPDATE /*RIF{i}*/ taxonomy_worms "
+            f"SET lastupdate_datetime=%(dt)s {qryplus} "
+            "WHERE id=%(ecotaxa_id)s;"
+        )
+        return qry, params
+
+    @staticmethod
+    def deprecate(row: CsvRow, dt: datetime, i: int) -> Tuple[str, ParamDictT]:
+        # Note: In this case, WoRMS triplet is the _target_ taxon
+        assert row.new_id_ecotaxa is not None, i
+        # if row.name_wrm == row.name_ecotaxa:
+        #     print(f"line {i}: Should not deprecate to same {row.name_wrm}")
+        qry = (
+            f"UPDATE /*DPR{i}*/ taxonomy_worms "
+            "SET rename_to=%(new_id_ecotaxa)s,taxostatus='D',rank=%(rank)s,lastupdate_datetime=%(dt)s "
+            "WHERE id=%(ecotaxa_id)s;"
+        )
         params = {
+            "ecotaxa_id": row.ecotaxa_id,
+            "new_id_ecotaxa": row.new_id_ecotaxa,
+            "rank": row.rank,
+            "dt": dt,
+        }
+        return qry, params
+
+    @staticmethod
+    def change_to_morpho(row: CsvRow, dt: datetime, i: int) -> Tuple[str, ParamDictT]:
+        # newname = row.name_ecotaxa
+        qry = (
+            f"UPDATE /*CTM{i}*/ taxonomy_worms SET taxotype='M',lastupdate_datetime=%(dt)s "
+            "WHERE id=%(ecotaxa_id)s;"
+        )
+        params = {
+            "ecotaxa_id": row.ecotaxa_id,
+            # "name": row.name_wrm,
+            "dt": dt,
+        }
+        return qry, params
+
+    @staticmethod
+    def add_aphia_id(row: CsvRow, dt: datetime, i: int) -> Tuple[str, ParamDictT]:
+        qry = (
+            "UPDATE /*AAI*/ taxonomy_worms "
+            "SET name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
+            "WHERE id=%(ecotaxa_id)s;"
+        )
+        params = {
+            "ecotaxa_id": row.ecotaxa_id,
+            "name": row.name_wrm,
+            "aphia_id": row.aphia_id,
+            "rank": row.rank,
+            "dt": dt,
+        }
+        return qry, params
+
+    @staticmethod
+    def change_parent(row: CsvRow, dt: datetime, i: int) -> Tuple[str, ParamDictT]:
+        # Details are for sanity check
+        if row.details == CHANGER_LE_PARENT:
+            pass
+        elif row.details == BRANCHER_A_NOUVEL_ECOTAXA_ID:
+            if i not in (5100,):
+                assert row.new_parent_id_ecotaxa is not None, i
+                assert row.new_parent_id_ecotaxa > START_OF_WORMS, i
+        elif row.details == MORPHO_PARENT_DEPRECIE:
+            assert row.taxotype == "M", i
+        elif row.details == PAS_MATCH_WORMS_BRANCHE_HAUT:
+            assert row.aphia_id is None, i
+
+        params: ParamDictT = {
+            "ecotaxa_id": row.ecotaxa_id,
+            "dt": dt,
+            "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
+        }
+        qryplus = ""
+        if row.aphia_id is not None:
+            qryplus += ",name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s"
+            params["name"] = row.name_wrm
+            params["aphia_id"] = row.aphia_id
+            params["rank"] = row.rank
+
+        qry = (
+            f"UPDATE /*CPR{i}*/ taxonomy_worms "
+            f"SET parent_id=%(new_parent_id_ecotaxa)s,lastupdate_datetime=%(dt)s {qryplus} "
+            "WHERE id=%(ecotaxa_id)s;"
+        )
+        return qry, params
+
+    @staticmethod
+    def create_row(row: CsvRow, dt: datetime, i: int) -> Tuple[str, ParamDictT]:
+        params: ParamDictT = {
             "ecotaxa_id": row.ecotaxa_id,
             "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
             "dt": dt,
@@ -407,8 +440,7 @@ class WormsSynchronisation2(object):
                 f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(dt)s,%(dt)s {plusvalues}); "
             )
             params["name"] = row.name_ecotaxa
-        self.exec_sql(qry, params)
-        self.serverdb.commit()
+        return qry, params
 
     def delete_unused_taxa(self, actions: List[CsvRow]) -> None:
         to_del_from_csv = [
@@ -477,8 +509,7 @@ class WormsSynchronisation2(object):
         self.serverdb.commit()
         return None
 
-    def compute_display_name(self, taxolist):
-        return
+    def compute_display_names(self):
         sql = """with duplicate as (select lower(name) as name
                                     from taxonomy_worms
                                     GROUP BY lower(name)
@@ -495,15 +526,15 @@ class WormsSynchronisation2(object):
                                          from taxonomy_worms st
                                                   left JOIN taxonomy_worms sp on st.parent_id = sp.id
                                                   left JOIN taxonomy_worms sp2 on sp.parent_id = sp2.id
-                                                  left JOIN taxonomy_worms sp3 on sp2.parent_id = sp3.id
-                                         where (st.id = any (%(taxo)s) or sp.id = any (%(taxo)s) or
-                                                sp2.id = any (%(taxo)s) or sp3.id = any (%(taxo)s)))
+                                                  left JOIN taxonomy_worms sp3 on sp2.parent_id = sp3.id)
               """
-        Duplicates = self.get_all(
-            sql, {"taxo": taxolist}, cursor_factory=psycopg2.extras.RealDictCursor
-        )
+        Duplicates = []
+        for id_, tname, pname, p2name, p3name, display_name, taxostatus in self.get_all(
+            sql, {}        ):
+            Duplicates.append({"id":id_, "tname":tname, "pname":pname, "p2name":p2name,
+                        "p3name":p3name, "display_name":display_name, "taxostatus":taxostatus})
 
-        starttime = datetime.datetime.now()
+        starttime = datetime.now()
         DStats = {}
 
         def AddToDefStat(clestat):
@@ -541,20 +572,19 @@ class WormsSynchronisation2(object):
             if D["taxostatus"] == "D":
                 Duplicates[i]["newname"] += " (Deprecated)"
         app.logger.debug(
-            "Compute time %s ", (datetime.datetime.now() - starttime).total_seconds()
+            "Compute time %s ", (datetime.now() - starttime).total_seconds()
         )
-        starttime = datetime.datetime.now()
+        starttime = datetime.now()
         UpdateParam = []
         for D in Duplicates:
             if D["display_name"] != D["newname"]:
                 UpdateParam.append((int(D["id"]), D["newname"]))
         if len(UpdateParam) > 0:
-            dt = datetime.datetime.now(datetime.timezone.utc)
+            dt = datetime.now(timezone.utc)
             with self.serverdb.cursor() as cur:
                 # The execute_values doesn't easily support extra params outside the VALUES list for all rows in the same way.
                 # Actually, it can if we include it in each row of UpdateParam or if we use a different approach.
                 # Let's just use the current time for all.
-
                 UpdateParamWithTime = [(id, name, dt) for id, name in UpdateParam]
                 psycopg2.extras.execute_values(
                     cur,
@@ -568,7 +598,7 @@ class WormsSynchronisation2(object):
                 )
         app.logger.debug(
             "Update time %s for %d rows",
-            (datetime.datetime.now() - starttime).total_seconds(),
+            (datetime.now() - starttime).total_seconds(),
             len(UpdateParam),
         )
 
