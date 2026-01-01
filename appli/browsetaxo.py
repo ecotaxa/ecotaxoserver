@@ -44,7 +44,7 @@ def PackTreeTxt(txt):
 
 @app.route('/browsetaxo/')
 def browsetaxo():
-    lst=GetAll("""select t.id,t.aphia_id,t.parent_id,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email
+    lst=GetAll("""select t.id,t.aphia_id,t.parent_id,t.rank,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email
       ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,{}
     from taxonomy_worms t
     {}
@@ -91,20 +91,20 @@ def browsetaxoajax():
             sqlcrit += " and (t.parent_id = %(parent_id)s or t.id=%(parent_id)s ) " # or id pour faciliter la navigation
             params['parent_id']=int(gvp('columns[1][search][value]'))
     if gvp('columns[3][search][value]'):
-        sqlcrit += " and t.rank ilike %(name)s"
-        params['rank']='%'+gvp('columns[2][search][value]')+'%'
+        sqlcrit += " and t.rank ilike %(rank)s"
+        params['rank']='%'+gvp('columns[3][search][value]')+'%'
     if gvp('columns[4][search][value]'):
         sqlcrit += " and t.display_name ilike %(name)s"
-        params['name'] = '%' + gvp('columns[2][search][value]') + '%'
+        params['name'] = '%' + gvp('columns[4][search][value]') + '%'
     if gvp('columns[5][search][value]'):
         sqlcrit += " and t.taxotype = %(taxotype)s"
-        params['taxotype']=gvp('columns[3][search][value]')
+        params['taxotype']=gvp('columns[5][search][value]')
     if gvp('columns[6][search][value]'):
         sqlcrit += " and t.taxostatus = %(taxostatus)s"
-        params['taxostatus']=gvp('columns[4][search][value]')
+        params['taxostatus']=gvp('columns[6][search][value]')
     if gvp('columns[7][search][value]'):
         sqlcrit += " and t.creator_email ilike %(creator_email)s"
-        params['creator_email']='%'+gvp('columns[5][search][value]')+'%'
+        params['creator_email']='%'+gvp('columns[7][search][value]')+'%'
     if gvp('columns[8][search][value]').isdigit():
         sqlcrit += " and lastupdate_datetime like %(lastupdate)s"
         params['lastupdate']=int(gvp('columns[8][search][value]'))
