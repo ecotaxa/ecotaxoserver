@@ -191,13 +191,13 @@ class WormsSynchronisation2(object):
                 if child_id is None and mapped_parent_id is not None:
                     child_id = existing_child(mapped_parent_id, row.name_wrm)
                 if child_id is not None:
-                    print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", child_id)
+                    # print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", child_id)
                     qry, params = self.add_aphia_id(row._replace(ecotaxa_id=child_id), dt)
                     mapped_ids[row.ecotaxa_id] = child_id
                     turn_into_add = True
             if not turn_into_add:
                 if mapped_parent_id:
-                    print(f"Amend parent from", row.new_parent_id_ecotaxa, "to",mapped_parent_id)
+                    # print(f"Amend parent from", row.new_parent_id_ecotaxa, "to",mapped_parent_id)
                     row = row._replace(new_parent_id_ecotaxa=mapped_parent_id)
                 qry, params = self.create_row(row, dt)
                 store_child(row)
@@ -279,12 +279,18 @@ class WormsSynchronisation2(object):
                         f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(dt)s,%(dt)s {plusvalues}); "
                     )
             elif row.action == DEPRECIER:
+                if row.new_id_ecotaxa in mapped_ids:
+                    row = row._replace(new_id_ecotaxa=mapped_ids[row.new_id_ecotaxa],
+                    details="redirected depreciated")
                 qry, params = self.deprecate(row, dt)
             elif row.action == CHANGER_TYPE_EN_MORPHO:
                 qry, params = self.change_to_morpho(row, dt)
             elif row.action == AJOUTER_APHIA_ID:
                 qry, params = self.add_aphia_id(row, dt)
             elif row.action == CHANGER_LE_PARENT:
+                if row.new_parent_id_ecotaxa in mapped_ids:
+                    row = row._replace(new_parent_id_ecotaxa=mapped_ids[row.new_parent_id_ecotaxa],
+                    details="redirected")
                 qry, params = self.change_parent(row, dt)
             elif (
                 row.action
@@ -382,13 +388,12 @@ class WormsSynchronisation2(object):
         #     print(f"line {row.i}: Should not deprecate to same {row.name_wrm}")
         qry = (
             f"UPDATE /*DPR{row.i}*/ taxonomy_worms "
-            "SET rename_to=%(new_id_ecotaxa)s,taxostatus='D',rank=%(rank)s,lastupdate_datetime=%(dt)s "
+            "SET rename_to=%(new_id_ecotaxa)s,taxostatus='D',lastupdate_datetime=%(dt)s "
             "WHERE id=%(ecotaxa_id)s;"
         )
         params = {
             "ecotaxa_id": row.ecotaxa_id,
             "new_id_ecotaxa": row.new_id_ecotaxa,
-            "rank": row.rank,
             "dt": dt,
         }
         return qry, params
