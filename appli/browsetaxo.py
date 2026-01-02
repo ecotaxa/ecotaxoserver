@@ -85,11 +85,11 @@ def browsetaxoajax():
         sqlcrit += " and t.aphia_id = %(aphia_id)s"
         params['aphia_id'] = int(gvp('columns[1][search][value]'))
     if gvp('columns[2][search][value]').isdigit():
-        if int(gvp('columns[1][search][value]'))==0:
+        if int(gvp('columns[2][search][value]'))==0:
             sqlcrit += " and t.parent_id is null "
         else:
             sqlcrit += " and (t.parent_id = %(parent_id)s or t.id=%(parent_id)s ) " # or id pour faciliter la navigation
-            params['parent_id']=int(gvp('columns[1][search][value]'))
+            params['parent_id']=int(gvp('columns[2][search][value]'))
     if gvp('columns[3][search][value]'):
         sqlcrit += " and t.rank ilike %(rank)s"
         params['rank']='%'+gvp('columns[3][search][value]')+'%'
