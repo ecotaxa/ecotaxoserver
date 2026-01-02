@@ -178,12 +178,14 @@ class WormsSynchronisation2(object):
         creations = [a_row for a_row in actions if a_row.action == CREER_NOUVELLE_CATEGORIE]
         creations = self.order_for_creation(creations)
 
+        mapped_ids:Dict[int, int] = {} # key=asked from CSV, value=served, already existing
+
         for row in creations:
             dt = datetime.now(timezone.utc)
             turn_into_add = False
             mapped_parent_id = None
-            if row.new_parent_id_ecotaxa in WormsSynchronisation2.new_parent_ids:
-                mapped_parent_id = WormsSynchronisation2.new_parent_ids[row.new_parent_id_ecotaxa]
+            if row.new_parent_id_ecotaxa in mapped_ids:
+                mapped_parent_id = mapped_ids[row.new_parent_id_ecotaxa]
             if row.aphia_id is not None:
                 child_id = existing_child(row.new_parent_id_ecotaxa, row.name_wrm)
                 if child_id is None and mapped_parent_id is not None:
@@ -191,7 +193,7 @@ class WormsSynchronisation2(object):
                 if child_id is not None:
                     print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", child_id)
                     qry, params = self.add_aphia_id(row._replace(ecotaxa_id=child_id), dt)
-                    WormsSynchronisation2.new_parent_ids[row.ecotaxa_id] = child_id
+                    mapped_ids[row.ecotaxa_id] = child_id
                     turn_into_add = True
             if not turn_into_add:
                 if mapped_parent_id:
@@ -205,26 +207,12 @@ class WormsSynchronisation2(object):
         for row in actions:
             if row.action == A_SUPPRIMER:
                 continue
-
-            computename = True
             dt = datetime.now(timezone.utc)
-
-            # if i > 0 and i == index * 50000:
-            #     index += 1
-
             filesql = "static/db_update/" + row.action.replace(" ", "_") + ".sql"
             if os.path.exists(filesql):
                 wr = "a"
             else:
                 wr = "w"
-
-            # if row.aphia_id != NA and row.name_wrm != NA:
-            #     obj = {}
-            #     obj[str(row.aphia_id)] = (
-            #         row.aphia_id,
-            #         row.new_parent_id_ecotaxa,
-            #     )
-            #     verifs.update(obj)
 
             if row.name_ecotaxa != row.name_wrm and row.name_wrm != NA:
                 newname = row.name_wrm
@@ -254,7 +242,7 @@ class WormsSynchronisation2(object):
             if (
                 row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS
             ) or row.action == "Creer nouvelle categorie && deprecier":
-                assert False
+                assert False, row.i # No such condition in CSV
                 continue
                 if row.action != CREER_NOUVELLE_CATEGORIE:
                     row = row._replace(action=CREER_NOUVELLE_CATEGORIE)
@@ -304,7 +292,7 @@ class WormsSynchronisation2(object):
                 or row.action
                 == "Rien + Pas de match avec Worms mais rattache plus haut"
             ):
-                assert False
+                assert False, row.i # No such condition in CSV
                 qry = (
                     "UPDATE /*M1*/ taxonomy_worms "
                     "SET parent_id=%(new_parent_id_ecotaxa)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
@@ -363,7 +351,7 @@ class WormsSynchronisation2(object):
         # Do nothing _structural_ but still create WoRMS facet
         if row.new_id_ecotaxa is not None:
             assert row.taxotype == "M"
-            # Implied, row.it's a deprecation
+            # Implied, it's a deprecation
             return WormsSynchronisation2.deprecate(row, dt)
         if row.parent_id != row.new_parent_id_ecotaxa:
             print(
@@ -467,8 +455,6 @@ class WormsSynchronisation2(object):
             "WHERE id=%(ecotaxa_id)s;"
         )
         return qry, params
-
-    new_parent_ids:Dict[int, int] = {}
 
     @staticmethod
     def create_row(row: CsvRow, dt: datetime) -> Tuple[str, ParamDictT]:
