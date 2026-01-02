@@ -20,6 +20,7 @@ table.dataTable thead .sorting:after, table.dataTable thead .sorting_asc:after, 
 { bottom: 2px;}
 #tbl tbody td:nth-child(1){cursor: pointer;}
 #tbl tbody td:nth-child(2){cursor: pointer;}
+#tbl tbody td:nth-child(3){cursor: pointer;}
 #tbl tbody td:nth-child(5){cursor: pointer;color: #2b669a;}
 #tbl tbody td:nth-child(11){white-space: nowrap;}
 #tbl tbody td:nth-child(12){word-break: break-all;}
@@ -110,7 +111,7 @@ $(document).ready(function() {
       var taxoid=$(this).text();
       if(taxoid==='') taxoid='0';
       $('.dataTables_scrollHead thead tr:eq(1) td:nth-child(1) input').val('').change();
-      $('.dataTables_scrollHead thead tr:eq(1) td:nth-child(1) input').val(taxoid).change();
+      $('.dataTables_scrollHead thead tr:eq(1) td:nth-child(3) input').val(taxoid).change();
     })
     .on('click','.TreeMiddle,.TreeMiddleBtn',function () {
       $(this).closest('td').find('.TreeMiddle,.TreeMiddleBtn').toggle();

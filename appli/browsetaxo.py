@@ -123,7 +123,7 @@ def browsetaxoajax():
     lst = GetAll(sql,params)
     for lstitem in lst: # Post traitement sur les chaines
         lstitem['tree']=PackTreeTxt(lstitem['tree'])
-        lstitem['name']=XSSEscape(lstitem['name'])
+        lstitem['name']=XSSEscape(lstitem['name'] or '???')
         if lstitem['parent_id'] is None:
             lstitem['parent_id']=""
 
