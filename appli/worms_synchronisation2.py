@@ -53,6 +53,7 @@ class MiniTree:
         return already_there[0][1]
 
     def store_child(self, parent_id: Union[int, None], name: str, child_id: int):
+        assert name != NA
         new_child = (name, child_id)
         if parent_id not in self.children:
             self.children[parent_id] = [new_child]
@@ -66,6 +67,9 @@ class MiniTree:
 
     def get_parent(self, cat_id:int) -> Union[int, None]:
         return self.parents[cat_id]
+
+    def is_leaf(self, cat_id:int):
+        return cat_id not in self.children
 
     def stream_all_children(self, cat_id):
         for child in self.children.get(cat_id, []):
@@ -214,6 +218,8 @@ class WormsSynchronisation2(object):
         creations = [a_row for a_row in actions if a_row.action == CREER_NOUVELLE_CATEGORIE]
         creations = self.order_for_creation(creations)
         for row in creations:
+            if row.ecotaxa_id in (101109,):
+                continue
             dt = datetime.now(timezone.utc)
             turn_into_add = False
             mapped_parent_id = None
@@ -233,7 +239,6 @@ class WormsSynchronisation2(object):
                     # print(f"Amend parent from", row.new_parent_id_ecotaxa, "to",mapped_parent_id)
                     row = row._replace(new_parent_id_ecotaxa=mapped_parent_id)
                 qry, params = self.create_row(row, dt)
-                self.tree.store_child(row.new_parent_id_ecotaxa, row.name_wrm, row.ecotaxa_id)
             self.exec_sql(qry, params)
         self.serverdb.commit()
 
@@ -462,8 +467,7 @@ class WormsSynchronisation2(object):
         }
         return qry, params
 
-    @staticmethod
-    def change_parent(row: CsvRow, dt: datetime) -> Tuple[str, ParamDictT]:
+    def change_parent(self, row: CsvRow, dt: datetime) -> Tuple[str, ParamDictT]:
         # Details are for sanity check
         if row.details == CHANGER_LE_PARENT:
             pass
@@ -476,6 +480,10 @@ class WormsSynchronisation2(object):
         elif row.details == PAS_MATCH_WORMS_BRANCHE_HAUT:
             assert row.aphia_id is None, row.i
 
+        if row.new_parent_id_ecotaxa == self.tree.get_parent(row.ecotaxa_id):
+            # Already the good parent, just WoRMS-ize
+            return self.add_aphia_id(row, dt)
+
         params: ParamDictT = {
             "ecotaxa_id": row.ecotaxa_id,
             "dt": dt,
@@ -487,7 +495,14 @@ class WormsSynchronisation2(object):
             params["name"] = row.name_wrm
             params["aphia_id"] = row.aphia_id
             params["rank"] = row.rank
-
+            conflict_id = self.tree.existing_child(row.new_parent_id_ecotaxa, row.name_wrm)
+            if conflict_id is not None:
+                # TODO: verify other is a deprecation action and not deprecate the other
+                # assert self.tree.is_leaf(conflict_id), conflict_id
+                row = row._replace(new_id_ecotaxa=conflict_id)
+                return self.deprecate(row, dt)
+        else:
+            pass
         qry = (
             f"UPDATE /*CPR{row.i}*/ taxonomy_worms "
             f"SET parent_id=%(new_parent_id_ecotaxa)s,lastupdate_datetime=%(dt)s {qryplus} "
@@ -495,8 +510,7 @@ class WormsSynchronisation2(object):
         )
         return qry, params
 
-    @staticmethod
-    def create_row(row: CsvRow, dt: datetime) -> Tuple[str, ParamDictT]:
+    def create_row(self, row: CsvRow, dt: datetime) -> Tuple[str, ParamDictT]:
         params: ParamDictT = {
             "id": row.ecotaxa_id,
             "parent_id": row.new_parent_id_ecotaxa,
@@ -512,12 +526,14 @@ class WormsSynchronisation2(object):
             params["name"] = row.name_wrm
             params["aphia_id"] = row.aphia_id
             params["rank"] = row.rank
+            self.tree.store_child(row.new_parent_id_ecotaxa, row.name_wrm, row.ecotaxa_id)
         else:  # Non-WoRMS creation
             qry = (
                 f"INSERT /*NWC{row.i}*/ INTO taxonomy_worms(id,name,parent_id,creation_datetime,lastupdate_datetime {pluskeys}) "
                 f"VALUES(%(id)s, %(name)s,%(parent_id)s,%(dt)s,%(dt)s {plusvalues}); "
             )
             params["name"] = row.name_ecotaxa
+            self.tree.store_child(row.new_parent_id_ecotaxa, row.name_ecotaxa, row.ecotaxa_id)
         return qry, params
 
     def delete_unused_taxa(self, actions: List[CsvRow]) -> None:
