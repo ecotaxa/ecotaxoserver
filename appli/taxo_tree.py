@@ -33,12 +33,11 @@ def list_taxonomy_lineage(db, filename):
     rows = 0
     with open(filename, "w") as f:
         for row in res:
-            print(row[0], row[1], file=f)
+            print(f"{row[0]:6} {row[1]}", file=f)
             rows += 1
         print("Total rows: ", rows, file=f)
 
 
 if __name__ == "__main__":
     from appli import db
-
     list_taxonomy_lineage(db, "new_taxo.txt")
