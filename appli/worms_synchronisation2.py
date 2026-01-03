@@ -213,10 +213,10 @@ class WormsSynchronisation2(object):
 
         tree = MiniTree(self.serverdb)
         actions = self.read_and_check_csv(tree)
-        to_deprecate = set(
+        ids_to_deprecate = set(
             [a_row.ecotaxa_id for a_row in actions if a_row.action == DEPRECIER]
         )
-        to_suppress = set(
+        ids_to_suppress = set(
             [a_row.ecotaxa_id for a_row in actions if a_row.action == A_SUPPRIMER]
         )
         deprecate_means_nothing = set()
@@ -234,8 +234,6 @@ class WormsSynchronisation2(object):
         ]
         creations = self.order_for_creation(creations)
         for row in creations:
-            if row.ecotaxa_id in (101109,):
-                continue
             dt = datetime.now(timezone.utc)
             turn_into_add = False
             mapped_parent_id = None
@@ -281,56 +279,33 @@ class WormsSynchronisation2(object):
                 else:
                     continue
             else:
-                if row.aphia_id is not None:
-                    conflict_id = tree.existing_child(
-                        row.new_parent_id_ecotaxa, row.name_wrm
-                    )
-                    if conflict_id is not None:
-                        if conflict_id in to_deprecate:
-                            deprecate_means_nothing.add(
-                                conflict_id
-                            )  # Avoid later deprecation
-                        elif conflict_id in to_suppress:
-                            # TODO remove later suppression
+                conflict_id = tree.existing_child(
+                    row.new_parent_id_ecotaxa,
+                    row.name_ecotaxa if row.aphia_id is None else row.name_wrm,
+                )
+                if conflict_id is not None:
+                    if conflict_id in ids_to_deprecate:
+                        deprecate_means_nothing.add(
+                            conflict_id
+                        )  # Avoid later deprecation
+                    elif conflict_id in ids_to_suppress:
+                        # TODO remove later suppression
+                        if row.aphia_id is not None:
                             self.add_make_aphia_action(row, conflict_id, actions)
-                        else:
-                            assert False, row
-                        # assert tree.is_leaf(conflict_id), conflict_id
-                        row = row._replace(new_id_ecotaxa=conflict_id)
-                        qry, params = self.deprecate(row, dt)
                     else:
-                        qry, params = self.change_parent(row, dt)
+                        # No special post-processing, just make the change a deprecation
+                        pass
+                    # assert tree.is_leaf(conflict_id), conflict_id
+                    row = row._replace(new_id_ecotaxa=conflict_id)
+                    qry, params = self.deprecate(row, dt)
                 else:
-                    conflict_id = tree.existing_child(
-                        row.new_parent_id_ecotaxa, row.name_ecotaxa
-                    )
-                    if conflict_id is not None:
-                        if conflict_id in to_deprecate:
-                            deprecate_means_nothing.add(
-                                conflict_id
-                            )  # Avoid later deprecation
-                        elif conflict_id in to_suppress:
-                            # TODO remove later suppression
-                            # self.add_make_aphia_action(row, conflict_id, actions)
-                            pass
-                        else:
-                            assert False, (
-                                row,
-                                conflict_id,
-                                tree.get_parent(row.ecotaxa_id),
-                            )
-                        # assert tree.is_leaf(conflict_id), conflict_id
-                        row = row._replace(new_id_ecotaxa=conflict_id)
-                        qry, params = self.deprecate(row, dt)
-                    else:
-                        qry, params = self.change_parent(row, dt)
                     qry, params = self.change_parent(row, dt)
             self.exec_sql(qry, params)
 
         nothing_changes = [a_row for a_row in actions if a_row.action == RIEN_FAIRE]
         for row in nothing_changes:
-            dt = datetime.now(timezone.utc)
             # Do nothing _structural_ but still create WoRMS facet, if needed
+            dt = datetime.now(timezone.utc)
             if row.new_id_ecotaxa is not None:
                 assert row.taxotype == "M"
                 # Implied, it's a deprecation
@@ -342,14 +317,14 @@ class WormsSynchronisation2(object):
                     row.new_parent_id_ecotaxa, row.name_wrm
                 )
                 if conflict_id is not None and conflict_id != row.ecotaxa_id:
-                    if conflict_id in to_deprecate:
+                    if conflict_id in ids_to_deprecate:
                         # Will deprecate the other, less used probably
                         deprecate_means_nothing.add(
                             conflict_id
                         )  # Avoid later deprecation
                         row = row._replace(new_id_ecotaxa=conflict_id)
                         qry, params = self.deprecate(row, dt)
-                    elif conflict_id in to_suppress:
+                    elif conflict_id in ids_to_suppress:
                         # Relies on suppression to "make space" before applying WoRMS
                         self.add_make_aphia_action(row, conflict_id, actions)
                         row = row._replace(new_id_ecotaxa=conflict_id)
@@ -525,7 +500,7 @@ class WormsSynchronisation2(object):
 
     @staticmethod
     def order_for_creation(creations: List[CsvRow]) -> List[CsvRow]:
-        # Re-arrange 'creations' so that parents are created before children, to respect the constraint
+        # Re-arrange 'creations' so that parents are created before children, to respect the DB FK constraint
         new_ids = {row.ecotaxa_id for row in creations}
         ordered_creations = []
         already_done = set()
@@ -548,8 +523,6 @@ class WormsSynchronisation2(object):
         assert row.new_id_ecotaxa is not None, row.i
         # Note2: In this case, row.new_parent_id_ecotaxa is target's parent, BUT after eventual move.
         # assert tree.get_parent(row.new_id_ecotaxa) == row.new_parent_id_ecotaxa, row.i
-        # if row.name_wrm == row.name_ecotaxa:
-        #     print(f"line {row.i}: Should not deprecate {row.ecotaxa_id} to same {row.name_wrm}")
         qry = (
             f"UPDATE /*DPR{row.i}*/ taxonomy_worms "
             "SET rename_to=%(new_id_ecotaxa)s,taxostatus='D',lastupdate_datetime=%(dt)s "
