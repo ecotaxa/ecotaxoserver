@@ -64,7 +64,8 @@ def browsetaxo():
 @app.route('/browsetaxo/ajax',methods=['POST'])
 def browsetaxoajax():
     sql="""select t.id,t.aphia_id,t.parent_id,t.rank,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email
-      ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,{}
+      ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,
+      {}, t.rename_to
     from taxonomy_worms t 
     {}
     where 1=1
@@ -124,6 +125,7 @@ def browsetaxoajax():
     for lstitem in lst: # Post traitement sur les chaines
         lstitem['tree']=PackTreeTxt(lstitem['tree'])
         lstitem['name']=XSSEscape(lstitem['name'] or '???')
+        lstitem['name'] += "⇢"+str(lstitem['rename_to']) if lstitem['rename_to'] is not None else ""
         if lstitem['parent_id'] is None:
             lstitem['parent_id']=""
 
