@@ -292,21 +292,7 @@ class WormsSynchronisation2(object):
                             )  # Avoid later deprecation
                         elif conflict_id in to_suppress:
                             # TODO remove later suppression
-                            actions.append(
-                                CsvRow(
-                                    i=len(actions) + 2,
-                                    ecotaxa_id=conflict_id,
-                                    new_id_ecotaxa=None,
-                                    new_parent_id_ecotaxa=None,
-                                    taxotype=NA,
-                                    action=AJOUTER_APHIA_ID,
-                                    details=NA,
-                                    name_ecotaxa=NA,
-                                    aphia_id=row.aphia_id,
-                                    name_wrm=row.name_wrm,
-                                    rank=row.rank,
-                                )
-                            )
+                            self.add_make_aphia_action(row, conflict_id, actions)
                         else:
                             assert False, row
                         # assert tree.is_leaf(conflict_id), conflict_id
@@ -315,13 +301,75 @@ class WormsSynchronisation2(object):
                     else:
                         qry, params = self.change_parent(row, dt)
                 else:
+                    conflict_id = tree.existing_child(
+                        row.new_parent_id_ecotaxa, row.name_ecotaxa
+                    )
+                    if conflict_id is not None:
+                        if conflict_id in to_deprecate:
+                            deprecate_means_nothing.add(
+                                conflict_id
+                            )  # Avoid later deprecation
+                        elif conflict_id in to_suppress:
+                            # TODO remove later suppression
+                            # self.add_make_aphia_action(row, conflict_id, actions)
+                            pass
+                        else:
+                            assert False, (
+                                row,
+                                conflict_id,
+                                tree.get_parent(row.ecotaxa_id),
+                            )
+                        # assert tree.is_leaf(conflict_id), conflict_id
+                        row = row._replace(new_id_ecotaxa=conflict_id)
+                        qry, params = self.deprecate(row, dt)
+                    else:
+                        qry, params = self.change_parent(row, dt)
                     qry, params = self.change_parent(row, dt)
+            self.exec_sql(qry, params)
+
+        nothing_changes = [a_row for a_row in actions if a_row.action == RIEN_FAIRE]
+        for row in nothing_changes:
+            dt = datetime.now(timezone.utc)
+            # Do nothing _structural_ but still create WoRMS facet, if needed
+            if row.new_id_ecotaxa is not None:
+                assert row.taxotype == "M"
+                # Implied, it's a deprecation
+                qry, params = self.deprecate(row, dt)
+            elif row.aphia_id is None:
+                continue  # Nothing, for real
+            else:
+                conflict_id = tree.existing_child(
+                    row.new_parent_id_ecotaxa, row.name_wrm
+                )
+                if conflict_id is not None and conflict_id != row.ecotaxa_id:
+                    if conflict_id in to_deprecate:
+                        # Will deprecate the other, less used probably
+                        deprecate_means_nothing.add(
+                            conflict_id
+                        )  # Avoid later deprecation
+                        row = row._replace(new_id_ecotaxa=conflict_id)
+                        qry, params = self.deprecate(row, dt)
+                    elif conflict_id in to_suppress:
+                        # Relies on suppression to "make space" before applying WoRMS
+                        self.add_make_aphia_action(row, conflict_id, actions)
+                        row = row._replace(new_id_ecotaxa=conflict_id)
+                        qry, params = self.deprecate(row, dt)
+                    else:
+                        print("Fails case 3?", row, conflict_id)
+                        qry, params = self.add_aphia_id(row, dt)
+                else:
+                    qry, params = self.add_aphia_id(row, dt)
             self.exec_sql(qry, params)
 
         self.serverdb.commit()
 
         for row in actions:
-            if row.action in (A_SUPPRIMER, CREER_NOUVELLE_CATEGORIE, CHANGER_LE_PARENT):
+            if row.action in (
+                A_SUPPRIMER,
+                CREER_NOUVELLE_CATEGORIE,
+                CHANGER_LE_PARENT,
+                RIEN_FAIRE,
+            ):
                 continue
             dt = datetime.now(timezone.utc)
             filesql = "static/db_update/" + row.action.replace(" ", "_") + ".sql"
@@ -429,16 +477,6 @@ class WormsSynchronisation2(object):
                     "rank": row.rank,
                     "dt": dt,
                 }
-            elif row.action == RIEN_FAIRE:
-                # Do nothing _structural_ but still create WoRMS facet, if needed
-                if row.new_id_ecotaxa is not None:
-                    assert row.taxotype == "M"
-                    # Implied, it's a deprecation
-                    qry, params = self.deprecate(row, dt)
-                elif row.aphia_id is None:
-                    wry, params = "", None
-                else:
-                    qry, params = self.add_aphia_id(row, dt)
             else:
                 qry = ""
                 errorfile.write(" no sql defined - " + ",".join(map(str, row)) + "\n")
@@ -466,6 +504,24 @@ class WormsSynchronisation2(object):
         # os.system(deltable)
         # copytable = "pg_dump -t taxonomy_worms -p port -h host -U user dbone | psql -U user2 -h host2 -p port2 dbtwo"
         # os.system(copytable)
+
+    @staticmethod
+    def add_make_aphia_action(row: CsvRow, conflict_id: int, actions: List[CsvRow]):
+        actions.append(
+            CsvRow(
+                i=len(actions) + 2,
+                ecotaxa_id=conflict_id,
+                new_id_ecotaxa=None,
+                new_parent_id_ecotaxa=None,
+                taxotype=NA,
+                action=AJOUTER_APHIA_ID,
+                details=NA,
+                name_ecotaxa=NA,
+                aphia_id=row.aphia_id,
+                name_wrm=row.name_wrm,
+                rank=row.rank,
+            )
+        )
 
     @staticmethod
     def order_for_creation(creations: List[CsvRow]) -> List[CsvRow]:
