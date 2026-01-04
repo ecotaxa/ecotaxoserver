@@ -1,5 +1,21 @@
 # -*- coding: utf-8 -*-
-from appli import database
+import os
+import pickle
+import urllib3
+import json
+import time
+import re
+
+
+CACHE_FILE = "worms_cache.pkl"
+worms_cache = {}
+
+if os.path.exists(CACHE_FILE):
+    with open(CACHE_FILE, "rb") as f:
+        worms_cache = pickle.load(f)
+
+http = urllib3.PoolManager()
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 SQL_LIST_LINEAGE = """
 WITH RECURSIVE taxonomy_lineage AS (
@@ -21,8 +37,25 @@ WITH RECURSIVE taxonomy_lineage AS (
     FROM taxonomy_worms t
     INNER JOIN taxonomy_lineage tl ON t.parent_id = tl.id
 )
-SELECT id, lineage FROM taxonomy_lineage ORDER BY lineage;
+SELECT id, lineage FROM taxonomy_lineage ORDER BY id;
 """
+
+SQL_APHIA_AND_ECO_ID = """
+select id, aphia_id from taxonomy_worms txp
+where aphia_id is not null
+  -- and not exists(select 1 from taxonomy_worms txc
+  --                where txc.parent_id = txp.id and txc.aphia_id is not null)
+order by id
+"""
+
+
+def to_lineage(dct: dict):
+    """{'AphiaID': 1, 'rank': 'Superdomain', 'scientificname': 'Biota', 'child': {'AphiaID': 2, 'rank': 'Kingdom', 'scientificname': 'Animalia', 'child': {'AphiaID': 799, 'rank': 'Phylum', 'scientificname': 'Nematoda', 'child': {'AphiaID': 834422, 'rank': 'Class', 'scientificname': 'Enoplea', 'child': {'AphiaID': 2135, 'rank': 'Subclass', 'scientificname': 'Enoplia', 'child': {'AphiaID': 2141, 'rank': 'Order', 'scientificname': 'Enoplida', 'child': {'AphiaID': 834425, 'rank': 'Suborder', 'scientificname': 'Oncholaimina', 'child': {'AphiaID': 2159, 'rank': 'Superfamily', 'scientificname': 'Oncholaimoidea', 'child': {'AphiaID': 2204, 'rank': 'Family', 'scientificname': 'Oncholaimidae', 'child': {'AphiaID': 2269, 'rank': 'Subfamily', 'scientificname': 'Oncholaimellinae', 'child': {'AphiaID': 2570, 'rank': 'Genus', 'scientificname': 'Viscosia', 'child': None}}}}}}}}}}}"""
+    name, aphia_id = dct["scientificname"], dct["AphiaID"]
+    ret = f"{name}({aphia_id})"
+    if dct["child"] is not None:
+        ret += " > " + to_lineage(dct["child"])
+    return ret
 
 
 def list_taxonomy_lineage(db, filename):
@@ -32,12 +65,76 @@ def list_taxonomy_lineage(db, filename):
         res = cur.fetchall()
     rows = 0
     with open(filename, "w") as f:
+        ko = 0
+        checked = 0
+        failed_aphia_ids = set()
         for row in res:
-            print(f"{row[0]:6} {row[1]}", file=f)
+            cat_id, db_worms_lineage = row
+            # print(f"{cat_id:6} {db_worms_lineage}", file=f)
+            # set aphia_id to last parenthised number in db_worms_lineage
+            # e.g. Cyanophyceae(146542) > Nodosilineales(1653516) > Cymatolegaceae(1653542)
+            # returns 1653542
+            aphia_id = None
+            matches = re.findall(r"\((\d+)\)", db_worms_lineage)
+            if matches:
+                aphia_id = int(matches[-1])
+            if aphia_id in worms_cache:
+                checked += 1
+                worms = to_lineage(worms_cache[aphia_id])
+                if worms != db_worms_lineage:
+                    seen = False
+                    for a_failed in failed_aphia_ids:
+                        if f"({a_failed})" in worms:
+                            seen = True
+                    if not seen:
+                        print(f"DB: {cat_id:6} {db_worms_lineage}", file=f)
+                        print(f"GET:       {worms}", file=f)
+                        print(f"!== ", file=f)
+                        failed_aphia_ids.add(aphia_id)
+                    ko += 1
             rows += 1
         print("Total rows: ", rows, file=f)
+        print(f"Total rows {rows} checked {checked} KO {ko}")
+
+
+URL = "https://www.marinespecies.org/rest/AphiaClassificationByAphiaID/{aphia_id}"
+
+
+def fetch_worms(db):
+    cnx = db.engine.raw_connection()
+    with cnx.cursor() as cur:
+        cur.execute(SQL_APHIA_AND_ECO_ID)
+        res = cur.fetchall()
+
+    get_count = 0
+    for row in res:
+        eco_id, aphia_id = row
+        if aphia_id in worms_cache:
+            continue
+        print("Fetching worms for", aphia_id)
+        url = URL.format(aphia_id=aphia_id)
+        try:
+            r = http.request("GET", url)
+            if r.status == 200:
+                worms_cache[aphia_id] = json.loads(r.data.decode("utf-8"))
+                time.sleep(0.2)
+                get_count += 1
+                if get_count % 10 == 0:
+                    with open(CACHE_FILE, "wb") as f:
+                        pickle.dump(worms_cache, f)
+                    print(f"Saved cache at {get_count} GETs")
+            else:
+                print(f"Failed to fetch {url}: {r.status}")
+        except Exception as e:
+            print(f"Error fetching {url}: {e}")
+
+    with open(CACHE_FILE, "wb") as f:
+        pickle.dump(worms_cache, f)
+    print("Final cache save completed.")
 
 
 if __name__ == "__main__":
     from appli import db
+
+    fetch_worms(db)
     list_taxonomy_lineage(db, "new_taxo.txt")
