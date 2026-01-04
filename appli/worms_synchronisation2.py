@@ -20,6 +20,7 @@ CHANGER_LE_PARENT = "Changer le parent"
 PAS_MATCH_WORMS_BRANCHE_HAUT = "Pas de match Worms (branche + haut)"
 MORPHO_PARENT_DEPRECIE = "Morpho : parent deprecie"
 CREER_NOUVELLE_CATEGORIE = "Creer nouvelle categorie"
+RIEN_MORPHO_PARENT_P_NON_DEPRECIE = "Rien : Morpho, parent P non deprecie"
 
 ParamDictT = Dict[str, Union[int, str, datetime]]
 
@@ -314,7 +315,11 @@ class WormsSynchronisation2(object):
                 # Implied, it's a deprecation
                 qry, params = self.deprecate(row)
             elif row.aphia_id is None:
-                continue  # Nothing, for real
+                if row.name_wrm != NA:
+                    # Small hack, need a rename even if not a WoRMS-ification
+                    qry, params = self.change_name(row, tree)
+                else:
+                    continue  # Nothing, for real
             else:
                 conflict_id = tree.existing_child(
                     row.new_parent_id_ecotaxa, row.name_wrm
@@ -569,6 +574,22 @@ class WormsSynchronisation2(object):
         return qry, params
 
     @staticmethod
+    def change_name(row: CsvRow, tree: MiniTree) -> Tuple[str, ParamDictT]:
+        assert row.name_wrm != NA, row.i
+        qry = (
+            f"UPDATE /*CNA{row.i}*/ taxonomy_worms "
+            "SET name=%(name)s,lastupdate_datetime=%(dt)s "
+            "WHERE id=%(id)s;"
+        )
+        params = {
+            "id": row.ecotaxa_id,
+            "name": row.name_wrm,
+            "dt": datetime.now(timezone.utc),
+        }
+        tree.set_name(params["id"], params["name"])
+        return qry, params
+
+    @staticmethod
     def change_parent(row: CsvRow, tree: MiniTree) -> Tuple[str, ParamDictT]:
         # Details are for sanity check
         if row.details == CHANGER_LE_PARENT:
@@ -783,7 +804,7 @@ class WormsSynchronisation2(object):
         (RIEN_FAIRE, "NA"),
         (RIEN_FAIRE, RIEN_FAIRE),
         (RIEN_FAIRE, "Rien : Root French"),
-        (RIEN_FAIRE, "Rien : Morpho, parent P non deprecie"),
+        (RIEN_FAIRE, RIEN_MORPHO_PARENT_P_NON_DEPRECIE),
         (RIEN_FAIRE, PAS_MATCH_WORMS_BRANCHE_HAUT),
         (RIEN_FAIRE, "Enfant de French, garder hors arbre Worms"),
         (RIEN_FAIRE, "Rien : child of not-living"),
@@ -886,16 +907,13 @@ class WormsSynchronisation2(object):
                 if (aphia_id, name_wrm, rank) == (NA, NA, NA) or (
                     aphia_id != NA and name_wrm != NA and rank != NA
                 ):
-                    pass
+                    pass  # OK, all of them or none of them
                 else:
-                    if (
-                        aphia_id == NA
-                        and name_wrm != NA
-                        and rank == NA
-                        and taxotype == "M"
-                    ):
+                    if aphia_id == NA and name_wrm != NA and rank == NA:
                         # Special case for Morpho renaming
-                        pass
+                        assert taxotype == "M"
+                        assert action == RIEN_FAIRE
+                        assert details == RIEN_MORPHO_PARENT_P_NON_DEPRECIE
                     else:
                         print(
                             f"XLS worms inconsistent line {line}",
@@ -920,7 +938,6 @@ class WormsSynchronisation2(object):
                 )
 
                 assert "'" not in name_wrm, (line, name_wrm)
-                # assert name_ecotaxa != NA, (line, name_ecotaxa)
 
                 rows.append(
                     CsvRow(
