@@ -106,12 +106,12 @@ def browsetaxoajax():
     if gvp('columns[7][search][value]'):
         sqlcrit += " and t.creator_email ilike %(creator_email)s"
         params['creator_email']='%'+gvp('columns[7][search][value]')+'%'
-    if gvp('columns[8][search][value]').isdigit():
+    if gvp('columns[9][search][value]').isdigit():
         sqlcrit += " and lastupdate_datetime like %(lastupdate)s"
-        params['lastupdate']=int(gvp('columns[8][search][value]'))
-    if gvp('columns[9][search][value]'):
+        params['lastupdate']=int(gvp('columns[9][search][value]'))
+    if gvp('columns[10][search][value]'):
         sqlcrit += """ and tree ilike %(tree)s"""
-        params['tree']='%'+gvp('columns[9][search][value]')+'%'
+        params['tree']='%'+gvp('columns[10][search][value]')+'%'
 
     sqlcount="select count(*) from taxonomy_worms t where 1=1 "
     if 'tree' in params:

@@ -330,7 +330,7 @@ class WormsSynchronisation2(object):
                                 conflict_id
                             )  # Avoid later deprecation
                         elif conflict_id in ids_to_suppress:
-                            # TODO remove later suppression
+                            ids_to_suppress.remove(conflict_id)
                             if row.aphia_id is not None:
                                 self.add_make_aphia_action(row, conflict_id, actions)
                         else:
@@ -391,6 +391,7 @@ class WormsSynchronisation2(object):
                             qry, params = self.deprecate(row)
                         elif conflict_id in ids_to_suppress:
                             # Relies on suppression to "make space" before applying WoRMS
+                            ids_to_suppress.remove(conflict_id)
                             self.add_make_aphia_action(row, conflict_id, actions)
                             row = row._replace(new_id_ecotaxa=conflict_id)
                             qry, params = self.deprecate(row)
