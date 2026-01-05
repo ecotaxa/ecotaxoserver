@@ -7,6 +7,7 @@ import psycopg2.extras
 
 from appli import app, db, ntcv
 
+WORMS_URL="https://www.marinespecies.org/aphia.php?p=taxdetails&id="
 AJOUTER_APHIA_ID = "Ajouter aphia_id"  # Once in CSV, for living->Biota
 CHANGER_TYPE_EN_MORPHO = (
     "changer type en Morpho"  # 3 times in CSV, Protista + Chloroplast + Protoplastes
@@ -625,7 +626,7 @@ class WormsSynchronisation2(object):
         assert row.name_wrm != NA, row.i
         qry = (
             f"UPDATE /*AAI{row.i}*/ taxonomy_worms "
-            "SET name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,lastupdate_datetime=%(dt)s "
+            "SET name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,source_url=%(url)s,lastupdate_datetime=%(dt)s "
             "WHERE id=%(id)s;"
         )
         params = {
@@ -633,6 +634,7 @@ class WormsSynchronisation2(object):
             "name": row.name_wrm,
             "aphia_id": row.aphia_id,
             "rank": row.rank,
+            "url": WORMS_URL+str(row.aphia_id),
             "dt": datetime.now(timezone.utc),
         }
         tree.set_name(params["id"], params["name"])
@@ -675,10 +677,11 @@ class WormsSynchronisation2(object):
         }
         qryplus = ""
         if row.aphia_id is not None:
-            qryplus += ",name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s"
+            qryplus += ",name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,source_url=%(url)s"
             params["name"] = row.name_wrm
             params["aphia_id"] = row.aphia_id
             params["rank"] = row.rank
+            params["url"] = WORMS_URL+str(row.aphia_id)
             tree.set_name(params["id"], params["name"])
         qry = (
             f"UPDATE /*CPR{row.i}*/ taxonomy_worms "
