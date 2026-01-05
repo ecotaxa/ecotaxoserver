@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 import csv
 from datetime import datetime, timezone
-from typing import NamedTuple, List, Union, Dict, Tuple, Any, IO
+from typing import NamedTuple, List, Union, Dict, Tuple, Any, IO, Set
 
 import psycopg2.extras
 
 from appli import app, db, ntcv
 
-WORMS_URL="https://www.marinespecies.org/aphia.php?p=taxdetails&id="
+WORMS_URL = "https://www.marinespecies.org/aphia.php?p=taxdetails&id="
 AJOUTER_APHIA_ID = "Ajouter aphia_id"  # Once in CSV, for living->Biota
 CHANGER_TYPE_EN_MORPHO = (
     "changer type en Morpho"  # 3 times in CSV, Protista + Chloroplast + Protoplastes
@@ -23,6 +23,35 @@ CREER_NOUVELLE_CATEGORIE = "Creer nouvelle categorie"
 RIEN_MORPHO_PARENT_P_NON_DEPRECIE = "Rien : Morpho, parent P non deprecie"
 
 ParamDictT = Dict[str, Union[int, str, datetime]]
+
+CANCEL_MARK = "'🗙'"
+MARK_CANCELLED_SQL = (
+    f"update taxonomy_worms set name ={CANCEL_MARK}||name where id=%(id)s"
+)
+MARK_DEPRECATED_SQL = f"update taxonomy_worms set name = '→'||name where id=%(id)s"
+
+EMBEDDED = (
+    93382,
+    56693,
+    85123,
+    27642,
+    45074,
+    11514,
+    13381,
+    56317,
+    11758,
+    342,
+    25942,
+    85008,
+    93973,
+    84963,
+    85076,
+    85011,
+    85024,
+    93491,
+    85039,
+    85025,
+)
 
 
 class MiniTree:
@@ -243,9 +272,6 @@ class WormsSynchronisation2(object):
         )
         deprecate_means_nothing = set()
 
-        # Delete first so we don't link accidentally to deleted taxa
-        # self.delete_unused_taxa(actions)
-
         mapped_ids: Dict[int, int] = (
             {}
         )  # key=asked, from CSV, value=served, already existing
@@ -271,6 +297,8 @@ class WormsSynchronisation2(object):
                     row2 = row._replace(ecotaxa_id=child_id)
                     qry, params = self.add_aphia_id(row2, tree)
                     mapped_ids[row.ecotaxa_id] = child_id
+                    if child_id in ids_to_suppress:
+                        ids_to_suppress.remove(child_id)
                     turn_into_add = True
             if not turn_into_add:
                 if mapped_parent_id:
@@ -314,13 +342,10 @@ class WormsSynchronisation2(object):
                         #     conflict_id in ids_to_suppress,
                         # )
                         if conflict_id in ids_to_suppress:
-                            self.exec_sql(
-                                f"update taxonomy_worms set name = '🞭'||name where id = {conflict_id}"
-                            )
+                            # ids_to_suppress.remove(conflict_id)
+                            self.exec_sql(MARK_CANCELLED_SQL, {"id": conflict_id})
                         elif conflict_id in ids_to_deprecate:
-                            self.exec_sql(
-                                f"update taxonomy_worms set name = '→'||name where id = {conflict_id}"
-                            )
+                            self.exec_sql(MARK_DEPRECATED_SQL, {"id": conflict_id})
                         else:
                             assert False, (conflict_id, row)
                         qry, params = self.change_parent(row, tree)
@@ -371,13 +396,10 @@ class WormsSynchronisation2(object):
                         #     conflict_id in ids_to_suppress,
                         # )
                         if conflict_id in ids_to_suppress:
-                            self.exec_sql(
-                                f"update taxonomy_worms set name = '🞭'||name where id = {conflict_id}"
-                            )
+                            # ids_to_suppress.remove(conflict_id)
+                            self.exec_sql(MARK_CANCELLED_SQL, {"id": conflict_id})
                         elif conflict_id in ids_to_deprecate:
-                            self.exec_sql(
-                                f"update taxonomy_worms set name = '→'||name where id = {conflict_id}"
-                            )
+                            self.exec_sql(MARK_DEPRECATED_SQL, {"id": conflict_id})
                         else:
                             assert False, (conflict_id, row)
                         qry, params = self.add_aphia_id(row, tree)
@@ -403,6 +425,8 @@ class WormsSynchronisation2(object):
             self.log_query(action_logs[row.action], qry, params)
 
         self.serverdb.commit()
+
+        # self.mark_cancelled_taxa(ids_to_suppress)
 
         for row in actions:
             if row.action in (
@@ -480,6 +504,7 @@ class WormsSynchronisation2(object):
                         f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(dt)s,%(dt)s {plusvalues}); "
                     )
             elif row.action == DEPRECIER:
+                # assert tree.get_parent(row.new_id_ecotaxa) == row.new_parent_id_ecotaxa, row
                 if row.new_id_ecotaxa in mapped_ids:
                     mapped_id = mapped_ids[row.new_id_ecotaxa]
                     row = row._replace(
@@ -491,7 +516,8 @@ class WormsSynchronisation2(object):
                         deprecate_means_nothing.add(row.ecotaxa_id)
                 if row.ecotaxa_id in deprecate_means_nothing:
                     deprecate_means_nothing.remove(row.ecotaxa_id)
-                    qry, params = self.add_aphia_id(row, tree)
+                    if row.aphia_id is not None:
+                        qry, params = self.add_aphia_id(row, tree)
                 else:
                     qry, params = self.deprecate(row)
             elif row.action == CHANGER_TYPE_EN_MORPHO:
@@ -525,6 +551,8 @@ class WormsSynchronisation2(object):
 
         qry = "SELECT setval('seq_taxonomy_worms', COALESCE((SELECT MAX(id) FROM taxonomy_worms), 1), false);"
         self.exec_sql(qry)
+
+        self.delete_unused_taxa(ids_to_suppress)
 
         self.compute_display_names()
 
@@ -635,7 +663,7 @@ class WormsSynchronisation2(object):
             "name": row.name_wrm,
             "aphia_id": row.aphia_id,
             "rank": row.rank,
-            "url": WORMS_URL+str(row.aphia_id),
+            "url": WORMS_URL + str(row.aphia_id),
             "dt": datetime.now(timezone.utc),
         }
         tree.set_name(params["id"], params["name"])
@@ -678,11 +706,13 @@ class WormsSynchronisation2(object):
         }
         qryplus = ""
         if row.aphia_id is not None:
-            qryplus += ",name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,source_url=%(url)s"
+            qryplus += (
+                ",name=%(name)s,aphia_id=%(aphia_id)s,rank=%(rank)s,source_url=%(url)s"
+            )
             params["name"] = row.name_wrm
             params["aphia_id"] = row.aphia_id
             params["rank"] = row.rank
-            params["url"] = WORMS_URL+str(row.aphia_id)
+            params["url"] = WORMS_URL + str(row.aphia_id)
             tree.set_name(params["id"], params["name"])
         qry = (
             f"UPDATE /*CPR{row.i}*/ taxonomy_worms "
@@ -722,10 +752,17 @@ class WormsSynchronisation2(object):
         )
         return qry, params
 
-    def delete_unused_taxa(self, actions: List[CsvRow]) -> None:
-        to_del_from_csv = [
-            row.ecotaxa_id for row in actions if row.action == A_SUPPRIMER
-        ]
+    def mark_cancelled_taxa(self, ids_to_cancel: Set[int]) -> None:
+        to_cancel_from_csv = list(ids_to_cancel)
+        qry = f"UPDATE taxonomy_worms SET name = {CANCEL_MARK}||name WHERE id=ANY(%s)"
+        chunk = 64
+        for i in range(0, len(to_cancel_from_csv), chunk):
+            params = (to_cancel_from_csv[i : i + chunk],)
+            print("marking ", i, " of ", len(to_cancel_from_csv))
+            self.exec_sql(qry, params)
+
+    def delete_unused_taxa(self, ids_to_delete: Set[int]) -> None:
+        to_del_from_csv = list(ids_to_delete)
         safe_ids_deleted = set()
         while True:
             # Build safe list: taxa with no objects and leaves of the tree
@@ -733,7 +770,8 @@ class WormsSynchronisation2(object):
                 "SELECT id FROM taxonomy_worms "
                 "WHERE id=ANY(%s) "
                 "AND id NOT IN (SELECT parent_id FROM taxonomy_worms WHERE parent_id IS NOT NULL)"
-                "AND NOT EXISTS (SELECT 1 FROM ecotaxainststat WHERE id_taxon=id)"
+                "AND NOT EXISTS (SELECT 1 FROM ecotaxainststat "
+                "                 WHERE id_taxon=id AND id_instance=1 /*LOV*/)"
             )
             res = self.get_all(qry, (to_del_from_csv,))
             safe_ids = [cat_id for (cat_id,) in res]
@@ -865,6 +903,7 @@ class WormsSynchronisation2(object):
         )
 
     POSSIBLE_ACTIONS = [
+        (CHANGER_LE_PARENT, 'Changement parent, demande Camille M.'),
         (CHANGER_LE_PARENT, "NA"),
         (CHANGER_LE_PARENT, CHANGER_LE_PARENT),
         (CHANGER_LE_PARENT, MORPHO_PARENT_DEPRECIE),
@@ -878,6 +917,8 @@ class WormsSynchronisation2(object):
         (RIEN_FAIRE, "Enfant de French, garder hors arbre Worms"),
         (RIEN_FAIRE, "Rien : child of not-living"),
         (RIEN_FAIRE, "Rien : t0 or taxa not matchable"),
+        (RIEN_FAIRE, 'Rien : morpho racine Not-living'),
+        (RIEN_FAIRE, 'Rien : parent direct morpho'),
         (DEPRECIER, "NA"),
         (DEPRECIER, "deprecate to new id"),
         (DEPRECIER, "temporary associate to Biota"),
