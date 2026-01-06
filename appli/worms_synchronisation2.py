@@ -157,11 +157,32 @@ FOREIGN_KEY_1 = """ALTER TABLE public.taxonomy_worms
         ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);"""
 
 WORMS_TAXO_DDL = [
+    """DROP TABLE if exists gone_taxa;""",
+    """CREATE TABLE gone_taxa
+       (
+           id                  INTEGER PRIMARY KEY,
+           aphia_id            INTEGER,
+           parent_id           INTEGER,
+           name                VARCHAR(100),
+           taxotype            CHAR DEFAULT 'P',
+           display_name        VARCHAR(200),
+           source_url          VARCHAR(200),
+           source_desc         VARCHAR(1000),
+           creator_email       VARCHAR(255),
+           creation_datetime   TIMESTAMP,
+           lastupdate_datetime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+           id_instance         INTEGER,
+           taxostatus          CHAR DEFAULT 'X',
+           rename_to           INTEGER,
+           rank                VARCHAR(24),
+           nbrobj              INTEGER,
+           nbrobjcum           INTEGER
+       );""",
     """DROP TABLE if exists taxonomy_worms;""",
     """CREATE TABLE taxonomy_worms
        (
            id                  INTEGER PRIMARY KEY,
-           aphia_id            INTEGER, /* Added */
+           aphia_id            INTEGER, /* Added instead of source_id */
            parent_id           INTEGER,
            name                VARCHAR(100)     NOT NULL,
            taxotype            CHAR DEFAULT 'P' NOT NULL,
@@ -858,6 +879,16 @@ class WormsSynchronisation2(object):
             self.serverdb.commit()
             if len(safe_ids) == 0:
                 break
+
+            qry = ("INSERT INTO gone_taxa (id, aphia_id, parent_id, name, taxotype, display_name, source_url, source_desc, "
+                   "creator_email, creation_datetime, id_instance, taxostatus, rename_to, rank, nbrobj, nbrobjcum) "
+            "SELECT id, aphia_id, parent_id, name, taxotype, display_name, source_url, source_desc, "
+            "creator_email, creation_datetime, id_instance, 'X', rename_to, rank, nbrobj, nbrobjcum "
+            "FROM taxonomy_worms WHERE id=ANY(%s)")
+            chunk = 64
+            for i in range(0, len(safe_ids), chunk):
+                params = (safe_ids[i : i + chunk],)
+                self.exec_sql(qry, params)
 
             qry = "DELETE FROM taxonomy_worms WHERE id=ANY(%s)"
             chunk = 64

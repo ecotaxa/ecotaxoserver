@@ -371,28 +371,42 @@ async def routesettaxon():
         ComputeDisplayName(taxonids)
         return jsonify(msg='ok',id=Taxon.id)
 
+# Return changes on taxa tree, since given date if provided, for given id if provided
 @app.route('/gettaxon/',methods=['POST'])
 def routegettaxon():
-    sql="""select t.id,t.aphia_id,t.parent_id,t.rank,t.name,t.taxotype,t.display_name,t.source_url,t.source_desc
-          ,t.creator_email
-          ,to_char(t.creation_datetime,'YYYY-MM-DD HH24:MI:SS') creation_datetime
-          ,to_char(t.lastupdate_datetime,'YYYY-MM-DD HH24:MI:SS') lastupdate_datetime,t.id_instance,t.taxostatus,t.rename_to 
-          from taxonomy_worms t where 1=1 """
+    sql="""select id,id_source,parent_id,rank,name,taxotype,display_name,source_url,source_desc
+          ,creator_email,creation_datetime,lastupdate_datetime,id_instance,taxostatus,rename_to 
+          from (
+            select t.id,t.aphia_id as id_source,t.parent_id,t.rank,t.name,t.taxotype,t.display_name,t.source_url,t.source_desc
+            ,t.creator_email
+            ,to_char(t.creation_datetime,'YYYY-MM-DD HH24:MI:SS') creation_datetime
+            ,to_char(t.lastupdate_datetime,'YYYY-MM-DD HH24:MI:SS') lastupdate_datetime
+            ,t.lastupdate_datetime as lastupdate_datetime_raw
+            ,t.id_instance,t.taxostatus,t.rename_to 
+            from taxonomy_worms t
+            UNION ALL
+            select g.id, g.aphia_id as id_source, g.parent_id, g.rank, g.name, g.taxotype, g.display_name, g.source_url, g.source_desc
+            , g.creator_email
+            , to_char(g.creation_datetime,'YYYY-MM-DD HH24:MI:SS') creation_datetime
+            , to_char(g.lastupdate_datetime,'YYYY-MM-DD HH24:MI:SS') lastupdate_datetime
+            , g.lastupdate_datetime as lastupdate_datetime_raw
+            , g.id_instance, 'X' as taxostatus, g.rename_to 
+            from gone_taxa g
+          ) t where 1=1 """
     sqlparam={}
     filtertype = gvp('filtertype')
     if filtertype=='id':
         sql+=" and id=%(id)s "
         sqlparam['id']=int(gvp('id'))
     elif filtertype=='since':
-        sql+=""" and lastupdate_datetime>=to_timestamp(%(startdate)s,'YYYY-MM-DD HH24:MI:SS') 
-                    
+        sql+=""" and lastupdate_datetime_raw>=to_timestamp(%(startdate)s,'YYYY-MM-DD HH24:MI:SS') 
                     """
         # and (taxostatus!='N' or id_instance=%(id_instance)s)     ==> Désactivé dans un premier temps
         sqlparam['startdate']=gvp('startdate')
         # sqlparam['id_instance']=gvp('id_instance')
     else:
         return jsonify(msg='filtertype required')
-    sql += " order by lastupdate_datetime "
+    sql += " order by lastupdate_datetime_raw "
     res=database.GetAll(sql,sqlparam,cursor_factory=psycopg2.extras.RealDictCursor)
     if len(res)==0 and filtertype=='id':
         return jsonify(msg='no data found')
