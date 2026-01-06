@@ -285,25 +285,23 @@ class WormsSynchronisation2(object):
             if row.ecotaxa_id in (101109,):
                 continue  # TODO: Fix in CSV, there is a double creation of Biota>Animalia>Arthropoda>Crustacea>Allotriocarida>Hexapoda>Insecta>Pterygota>Blattodea>Nocticolidae
             turn_into_add = False
-            mapped_parent_id = None
             if row.new_parent_id_ecotaxa in mapped_ids:
-                mapped_parent_id = mapped_ids[row.new_parent_id_ecotaxa]
+                # print(f"Amend created parent from", row.new_parent_id_ecotaxa, "to",mapped_parent_id)
+                row = row._replace(new_parent_id_ecotaxa=mapped_ids[row.new_parent_id_ecotaxa])
             if row.aphia_id is not None:
-                child_id = tree.existing_child(row.new_parent_id_ecotaxa, row.name_wrm)
-                if child_id is None and mapped_parent_id is not None:
-                    child_id = tree.existing_child(mapped_parent_id, row.name_wrm)
-                if child_id is not None:
-                    # print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", child_id)
-                    row2 = row._replace(ecotaxa_id=child_id)
+                conflict_id = tree.existing_child(row.new_parent_id_ecotaxa, row.name_wrm)
+                if conflict_id is not None:
+                    # Replace a create+delete old with an ID redirection and aphia update
+                    # print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", conflict_id)
+                    row2 = row._replace(ecotaxa_id=conflict_id)
                     qry, params = self.add_aphia_id(row2, tree)
-                    mapped_ids[row.ecotaxa_id] = child_id
-                    if child_id in ids_to_suppress:
-                        ids_to_suppress.remove(child_id)
+                    mapped_ids[row.ecotaxa_id] = conflict_id
+                    if conflict_id in ids_to_suppress:
+                        ids_to_suppress.remove(conflict_id)
+                    else:
+                        assert row.ecotaxa_id >= START_OF_WORMS, (conflict_id, row)
                     turn_into_add = True
             if not turn_into_add:
-                if mapped_parent_id:
-                    # print(f"Amend parent from", row.new_parent_id_ecotaxa, "to",mapped_parent_id)
-                    row = row._replace(new_parent_id_ecotaxa=mapped_parent_id)
                 qry, params = self.create_row(row, tree)
             self.exec_sql(qry, params)
             self.log_query(action_logs[row.action], qry, params)
@@ -332,20 +330,12 @@ class WormsSynchronisation2(object):
                     if not tree.is_leaf(row.ecotaxa_id) or not tree.is_leaf(
                         conflict_id
                     ):
-                        # print(
-                        #     "Not a leaf CPR:",
-                        #     tree.get_one(conflict_id),
-                        #     row,
-                        # )
-                        # print(
-                        #     conflict_id in ids_to_deprecate,
-                        #     conflict_id in ids_to_suppress,
-                        # )
-                        if conflict_id in ids_to_suppress:
+                        # print("Not a leaf CPR:",tree.get_one(conflict_id),row)
+                        if conflict_id in ids_to_deprecate:
+                            self.exec_sql(MARK_DEPRECATED_SQL, {"id": conflict_id})
+                        elif conflict_id in ids_to_suppress:
                             # ids_to_suppress.remove(conflict_id)
                             self.exec_sql(MARK_CANCELLED_SQL, {"id": conflict_id})
-                        elif conflict_id in ids_to_deprecate:
-                            self.exec_sql(MARK_DEPRECATED_SQL, {"id": conflict_id})
                         else:
                             assert False, (conflict_id, row)
                         qry, params = self.change_parent(row, tree)
@@ -359,9 +349,8 @@ class WormsSynchronisation2(object):
                             if row.aphia_id is not None:
                                 self.add_make_aphia_action(row, conflict_id, actions)
                         else:
-                            # No special post-processing, just make the change a deprecation
+                            # No special post-processing, just make the parent change a deprecation
                             pass
-                        # assert tree.is_leaf(conflict_id), conflict_id
                         row = row._replace(new_id_ecotaxa=conflict_id)
                         qry, params = self.deprecate(row)
                 else:
@@ -391,15 +380,11 @@ class WormsSynchronisation2(object):
                         conflict_id
                     ):
                         # print("Not a leaf AAI:", tree.get_one(conflict_id), row)
-                        # print(
-                        #     conflict_id in ids_to_deprecate,
-                        #     conflict_id in ids_to_suppress,
-                        # )
-                        if conflict_id in ids_to_suppress:
+                        if conflict_id in ids_to_deprecate:
+                            self.exec_sql(MARK_DEPRECATED_SQL, {"id": conflict_id})
+                        elif conflict_id in ids_to_suppress:
                             # ids_to_suppress.remove(conflict_id)
                             self.exec_sql(MARK_CANCELLED_SQL, {"id": conflict_id})
-                        elif conflict_id in ids_to_deprecate:
-                            self.exec_sql(MARK_DEPRECATED_SQL, {"id": conflict_id})
                         else:
                             assert False, (conflict_id, row)
                         qry, params = self.add_aphia_id(row, tree)
@@ -409,16 +394,14 @@ class WormsSynchronisation2(object):
                             deprecate_means_nothing.add(
                                 conflict_id
                             )  # Avoid later deprecation
-                            row = row._replace(new_id_ecotaxa=conflict_id)
-                            qry, params = self.deprecate(row)
                         elif conflict_id in ids_to_suppress:
                             # Relies on suppression to "make space" before applying WoRMS
                             ids_to_suppress.remove(conflict_id)
                             self.add_make_aphia_action(row, conflict_id, actions)
-                            row = row._replace(new_id_ecotaxa=conflict_id)
-                            qry, params = self.deprecate(row)
                         else:
                             assert False, ("Unforeseen", row)
+                        row = row._replace(new_id_ecotaxa=conflict_id)
+                        qry, params = self.deprecate(row)
                 else:
                     qry, params = self.add_aphia_id(row, tree)
             self.exec_sql(qry, params)
@@ -507,10 +490,7 @@ class WormsSynchronisation2(object):
                 # assert tree.get_parent(row.new_id_ecotaxa) == row.new_parent_id_ecotaxa, row
                 if row.new_id_ecotaxa in mapped_ids:
                     mapped_id = mapped_ids[row.new_id_ecotaxa]
-                    row = row._replace(
-                        new_id_ecotaxa=mapped_id,
-                        details="redirected depreciated",
-                    )
+                    row = row._replace(new_id_ecotaxa=mapped_id)
                     if mapped_id == row.ecotaxa_id:
                         # Don't deprecate to self
                         deprecate_means_nothing.add(row.ecotaxa_id)
