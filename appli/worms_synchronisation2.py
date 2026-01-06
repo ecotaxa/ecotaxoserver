@@ -28,7 +28,9 @@ CANCEL_MARK = "'🗙'"
 MARK_CANCELLED_SQL = (
     f"update taxonomy_worms set name ={CANCEL_MARK}||name where id=%(id)s"
 )
-MARK_DEPRECATED_SQL = f"update taxonomy_worms set name = '→'||name where id=%(id)s"
+# DEPRECATED_MARK = '→'
+DEPRECATED_MARK = "' '"
+MARK_DEPRECATED_SQL = f"update taxonomy_worms set name = {DEPRECATED_MARK}||name where id=%(id)s"
 
 EMBEDDED = (
     93382,
@@ -127,6 +129,28 @@ class MiniTree:
         else:
             self.children[parent_id] = [cat_id]
 
+    def deepest_parent_not_in(self, cat_id: int, ids_to_suppress) -> int:
+        lineage = self.get_lineage(cat_id)
+        lineage.reverse()
+        for parent_id in lineage:
+            if parent_id in ids_to_suppress:
+                return prev_parent, parent_id
+            prev_parent = parent_id
+        return lineage[-1], None
+
+    def get_lineage(self, cat_id: int) -> List[int]:
+        ret = []
+        parent_id = self.parents[cat_id]
+        while parent_id is not None:
+            ret.append(parent_id)
+            parent_id = self.parents[parent_id]
+        return ret
+
+FK_NAMES = ("taxonomy_worms_rename_to_fkey","taxonomy_worms_parent_id_fkey")
+FOREIGN_KEY_2 = """ALTER TABLE public.taxonomy_worms
+        ADD CONSTRAINT taxonomy_worms_rename_to_fkey FOREIGN KEY (rename_to) REFERENCES public.taxonomy_worms (id);"""
+FOREIGN_KEY_1 = """ALTER TABLE public.taxonomy_worms
+        ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);"""
 
 WORMS_TAXO_DDL = [
     """DROP TABLE if exists taxonomy_worms;""",
@@ -187,10 +211,8 @@ WORMS_TAXO_DDL = [
         on public.taxonomy_worms (lower(name::text));""",
     """CREATE INDEX "is_taxo_worms_parent"
         on public.taxonomy_worms (parent_id);""",
-    """ALTER TABLE public.taxonomy_worms
-            ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);""",
-    """ALTER TABLE public.taxonomy_worms
-        ADD CONSTRAINT taxonomy_worms_rename_to_fkey FOREIGN KEY (rename_to) REFERENCES public.taxonomy_worms (id);""",
+    FOREIGN_KEY_1,
+    FOREIGN_KEY_2,
     """ANALYZE public.taxonomy_worms;""",
 ]
 
@@ -367,7 +389,7 @@ class WormsSynchronisation2(object):
                 qry, params = self.deprecate(row)
             elif row.aphia_id is None:
                 if row.name_wrm != NA:
-                    # Small hack, need a rename even if not a WoRMS-ification
+                    # Small data hack, need a rename using WoRMS name even if not a WoRMS-ification
                     qry, params = self.change_name(row, tree)
                 else:
                     continue  # Nothing, for real
@@ -499,6 +521,13 @@ class WormsSynchronisation2(object):
                     if row.aphia_id is not None:
                         qry, params = self.add_aphia_id(row, tree)
                 else:
+                    parent_id = tree.get_parent(row.ecotaxa_id)
+                    valid_parent, invalid_parent = tree.deepest_parent_not_in(row.ecotaxa_id, ids_to_suppress)
+                    if parent_id != valid_parent:
+                        # self.exec_sql("update taxonomy_worms set parent_id = %(parent)s where id=%(cat)s",
+                        # {"parent": valid_parent, "cat": row.ecotaxa_id})
+                        # tree.change_parent(row.ecotaxa_id, valid_parent)
+                        print("W: deprecating in invalid tree, parent", parent_id, "valid parent", valid_parent, "invalid parent", invalid_parent, row)
                     qry, params = self.deprecate(row)
             elif row.action == CHANGER_TYPE_EN_MORPHO:
                 qry, params = self.change_to_morpho(row)
@@ -532,7 +561,17 @@ class WormsSynchronisation2(object):
         qry = "SELECT setval('seq_taxonomy_worms', COALESCE((SELECT MAX(id) FROM taxonomy_worms), 1), false);"
         self.exec_sql(qry)
 
-        self.delete_unused_taxa(ids_to_suppress)
+        self.mark_cancelled(ids_to_suppress)
+
+        self.compute_display_names() # To avoid waiting during dev
+
+        for fk in FK_NAMES:
+            self.exec_sql(f"ALTER TABLE taxonomy_worms DROP CONSTRAINT {fk}")
+        not_deleted = self.delete_unused_taxa(ids_to_suppress)
+        for sql in (FOREIGN_KEY_1, FOREIGN_KEY_2):
+            self.exec_sql(sql)
+
+        self.unmark_cancelled_leaves(not_deleted)
 
         self.compute_display_names()
 
@@ -732,16 +771,28 @@ class WormsSynchronisation2(object):
         )
         return qry, params
 
-    def mark_cancelled_taxa(self, ids_to_cancel: Set[int]) -> None:
+    def mark_cancelled(self, ids_to_cancel: Set[int]) -> None:
         to_cancel_from_csv = list(ids_to_cancel)
-        qry = f"UPDATE taxonomy_worms SET name = {CANCEL_MARK}||name WHERE id=ANY(%s)"
+        qry = (f"UPDATE taxonomy_worms SET name = {CANCEL_MARK}||name "
+        f"WHERE id=ANY(%s) AND LEFT(name,1) != {CANCEL_MARK} ")
         chunk = 64
         for i in range(0, len(to_cancel_from_csv), chunk):
             params = (to_cancel_from_csv[i : i + chunk],)
-            print("marking ", i, " of ", len(to_cancel_from_csv))
+            # print("marking ", i, " of ", len(to_cancel_from_csv))
             self.exec_sql(qry, params)
 
-    def delete_unused_taxa(self, ids_to_delete: Set[int]) -> None:
+    def unmark_cancelled_leaves(self, ids_to_uncancel: Set[int]) -> None:
+        to_uncancel_from_csv = list(ids_to_uncancel)
+        qry = (f"UPDATE taxonomy_worms SET name = SUBSTRING(name from 2) "
+        f"WHERE id=ANY(%s) AND LEFT(name,1) = {CANCEL_MARK} "
+        "AND id NOT IN (SELECT parent_id FROM taxonomy_worms WHERE parent_id IS NOT NULL)")
+        chunk = 1 # There are 3 errors, do as much as possible
+        for i in range(0, len(to_uncancel_from_csv), chunk):
+            params = (to_uncancel_from_csv[i : i + chunk],)
+            # print("marking ", i, " of ", len(to_cancel_from_csv))
+            self.exec_sql(qry, params)
+
+    def delete_unused_taxa(self, ids_to_delete: Set[int]) -> Set[int]:
         to_del_from_csv = list(ids_to_delete)
         safe_ids_deleted = set()
         while True:
@@ -771,7 +822,9 @@ class WormsSynchronisation2(object):
             safe_ids_deleted.update(safe_ids)
 
         print("To delete: ", len(to_del_from_csv), " safe: ", len(safe_ids_deleted))
-        print("Not deleted: ", set(to_del_from_csv).difference(safe_ids_deleted))
+        not_deleted = set(to_del_from_csv).difference(safe_ids_deleted)
+        print("Not deleted: ", not_deleted)
+        return not_deleted
 
     def clone_taxo_table(self) -> None:
         for qry in WORMS_TAXO_DDL:
