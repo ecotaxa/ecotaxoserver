@@ -30,7 +30,9 @@ MARK_CANCELLED_SQL = (
 )
 # DEPRECATED_MARK = '→'
 DEPRECATED_MARK = "' '"
-MARK_DEPRECATED_SQL = f"update taxonomy_worms set name = {DEPRECATED_MARK}||name where id=%(id)s"
+MARK_DEPRECATED_SQL = (
+    f"update taxonomy_worms set name = {DEPRECATED_MARK}||name where id=%(id)s"
+)
 
 EMBEDDED = (
     93382,
@@ -128,6 +130,7 @@ class MiniTree:
             self.children[parent_id].append(cat_id)
         else:
             self.children[parent_id] = [cat_id]
+        self.parents[cat_id] = parent_id
 
     def deepest_parent_not_in(self, cat_id: int, ids_to_suppress) -> int:
         lineage = self.get_lineage(cat_id)
@@ -146,7 +149,8 @@ class MiniTree:
             parent_id = self.parents[parent_id]
         return ret
 
-FK_NAMES = ("taxonomy_worms_rename_to_fkey","taxonomy_worms_parent_id_fkey")
+
+FK_NAMES = ("taxonomy_worms_rename_to_fkey", "taxonomy_worms_parent_id_fkey")
 FOREIGN_KEY_2 = """ALTER TABLE public.taxonomy_worms
         ADD CONSTRAINT taxonomy_worms_rename_to_fkey FOREIGN KEY (rename_to) REFERENCES public.taxonomy_worms (id);"""
 FOREIGN_KEY_1 = """ALTER TABLE public.taxonomy_worms
@@ -309,9 +313,13 @@ class WormsSynchronisation2(object):
             turn_into_add = False
             if row.new_parent_id_ecotaxa in mapped_ids:
                 # print(f"Amend created parent from", row.new_parent_id_ecotaxa, "to",mapped_parent_id)
-                row = row._replace(new_parent_id_ecotaxa=mapped_ids[row.new_parent_id_ecotaxa])
+                row = row._replace(
+                    new_parent_id_ecotaxa=mapped_ids[row.new_parent_id_ecotaxa]
+                )
             if row.aphia_id is not None:
-                conflict_id = tree.existing_child(row.new_parent_id_ecotaxa, row.name_wrm)
+                conflict_id = tree.existing_child(
+                    row.new_parent_id_ecotaxa, row.name_wrm
+                )
                 if conflict_id is not None:
                     # Replace a create+delete old with an ID redirection and aphia update
                     # print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", conflict_id)
@@ -349,9 +357,7 @@ class WormsSynchronisation2(object):
                     row.name_ecotaxa if row.aphia_id is None else row.name_wrm,
                 )
                 if conflict_id is not None:
-                    if not tree.is_leaf(row.ecotaxa_id) or not tree.is_leaf(
-                        conflict_id
-                    ):
+                    if not tree.is_leaf(conflict_id):
                         # print("Not a leaf CPR:",tree.get_one(conflict_id),row)
                         if conflict_id in ids_to_deprecate:
                             self.exec_sql(MARK_DEPRECATED_SQL, {"id": conflict_id})
@@ -373,8 +379,8 @@ class WormsSynchronisation2(object):
                         else:
                             # No special post-processing, just make the parent change a deprecation
                             pass
-                        row = row._replace(new_id_ecotaxa=conflict_id)
-                        qry, params = self.deprecate(row)
+                        self.add_deprecate_action(row, conflict_id, actions)
+                        continue
                 else:
                     qry, params = self.change_parent(row, tree)
             self.exec_sql(qry, params)
@@ -386,7 +392,9 @@ class WormsSynchronisation2(object):
             if row.new_id_ecotaxa is not None:
                 assert row.taxotype == "M"
                 # Implied, it's a deprecation
-                qry, params = self.deprecate(row)
+                self.add_deprecate_action(row, row.new_id_ecotaxa, actions)
+                continue
+
             elif row.aphia_id is None:
                 if row.name_wrm != NA:
                     # Small data hack, need a rename using WoRMS name even if not a WoRMS-ification
@@ -398,9 +406,7 @@ class WormsSynchronisation2(object):
                     row.new_parent_id_ecotaxa, row.name_wrm
                 )
                 if conflict_id is not None and conflict_id != row.ecotaxa_id:
-                    if not tree.is_leaf(row.ecotaxa_id) or not tree.is_leaf(
-                        conflict_id
-                    ):
+                    if not tree.is_leaf(conflict_id):
                         # print("Not a leaf AAI:", tree.get_one(conflict_id), row)
                         if conflict_id in ids_to_deprecate:
                             self.exec_sql(MARK_DEPRECATED_SQL, {"id": conflict_id})
@@ -422,8 +428,8 @@ class WormsSynchronisation2(object):
                             self.add_make_aphia_action(row, conflict_id, actions)
                         else:
                             assert False, ("Unforeseen", row)
-                        row = row._replace(new_id_ecotaxa=conflict_id)
-                        qry, params = self.deprecate(row)
+                        self.add_deprecate_action(row, conflict_id, actions)
+                        continue
                 else:
                     qry, params = self.add_aphia_id(row, tree)
             self.exec_sql(qry, params)
@@ -442,17 +448,17 @@ class WormsSynchronisation2(object):
             ):
                 continue
 
-            if row.name_ecotaxa != row.name_wrm and row.name_wrm != NA:
-                newname = row.name_wrm
-            elif row.name_ecotaxa != NA:
-                # No new name
-                newname = row.name_ecotaxa
-            else:
-                assert (
-                    False
-                ), (
-                    row.i
-                )  # Not reachable with current CSV, some double NAs are in "A supprimer"
+                # if row.name_ecotaxa != row.name_wrm and row.name_wrm != NA:
+                #     newname = row.name_wrm
+                # elif row.name_ecotaxa != NA:
+                ##    No new name
+                # newname = row.name_ecotaxa
+                # else:
+                #     assert (
+                #         False
+                #     ), (
+                #         row.i
+                #     )  # Not reachable with current CSV, some double NAs are in "A supprimer"
                 if row.action == CREER_NOUVELLE_CATEGORIE:
                     newname = NA + str(row.ecotaxa_id)
                     qry = "INSERT INTO taxonomy_worms(id, name,parent_id,rank,creation_datetime,lastupdate_datetime) VALUES(%s, %s, %s, %s, %s, %s);"
@@ -468,11 +474,11 @@ class WormsSynchronisation2(object):
                 else:
                     errorfile.write(" no name - " + ", ".join(map(str, row)) + "\n")
                 continue
-            assert newname != NA
-            if (
-                row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS
-            ) or row.action == "Creer nouvelle categorie && deprecier":
-                assert False, row.i  # No such condition in CSV
+                # assert newname != NA
+                # if (
+                #     row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS
+                # ) or row.action == "Creer nouvelle categorie && deprecier":
+                #     assert False, row.i  # No such condition in CSV
                 continue
                 if row.action != CREER_NOUVELLE_CATEGORIE:
                     row = row._replace(action=CREER_NOUVELLE_CATEGORIE)
@@ -522,12 +528,30 @@ class WormsSynchronisation2(object):
                         qry, params = self.add_aphia_id(row, tree)
                 else:
                     parent_id = tree.get_parent(row.ecotaxa_id)
-                    valid_parent, invalid_parent = tree.deepest_parent_not_in(row.ecotaxa_id, ids_to_suppress)
+                    valid_parent, invalid_parent = tree.deepest_parent_not_in(
+                        row.ecotaxa_id, ids_to_suppress
+                    )
                     if parent_id != valid_parent:
                         # self.exec_sql("update taxonomy_worms set parent_id = %(parent)s where id=%(cat)s",
                         # {"parent": valid_parent, "cat": row.ecotaxa_id})
                         # tree.change_parent(row.ecotaxa_id, valid_parent)
-                        print("W: deprecating in invalid tree, parent", parent_id, "valid parent", valid_parent, "invalid parent", invalid_parent, row)
+                        # print("W: deprecating in invalid tree, parent", parent_id, "valid parent", valid_parent, "invalid parent", invalid_parent, row)
+                        pass
+                    try:
+                        target_valid_parent, target_invalid_parent = (
+                            tree.deepest_parent_not_in(
+                                row.new_id_ecotaxa, ids_to_suppress
+                            )
+                        )
+                        if target_invalid_parent is not None:
+                            print(
+                                "E:Invalid deprecate target",
+                                row,
+                                "lineage KO at",
+                                target_invalid_parent,
+                            )
+                    except IndexError:  # TODO: Issue with top taxon
+                        pass
                     qry, params = self.deprecate(row)
             elif row.action == CHANGER_TYPE_EN_MORPHO:
                 qry, params = self.change_to_morpho(row)
@@ -563,7 +587,7 @@ class WormsSynchronisation2(object):
 
         self.mark_cancelled(ids_to_suppress)
 
-        self.compute_display_names() # To avoid waiting during dev
+        self.compute_display_names()  # To avoid waiting during dev
 
         for fk in FK_NAMES:
             self.exec_sql(f"ALTER TABLE taxonomy_worms DROP CONSTRAINT {fk}")
@@ -574,6 +598,7 @@ class WormsSynchronisation2(object):
         self.unmark_cancelled_leaves(not_deleted)
 
         self.compute_display_names()
+        self.add_deprecation_display_name()
 
         self.serverdb.commit()
 
@@ -615,6 +640,24 @@ class WormsSynchronisation2(object):
                 aphia_id=row.aphia_id,
                 name_wrm=row.name_wrm,
                 rank=row.rank,
+            )
+        )
+
+    @staticmethod
+    def add_deprecate_action(row: CsvRow, conflict_id: int, actions: List[CsvRow]):
+        actions.append(
+            CsvRow(
+                i=len(actions) + 2,
+                ecotaxa_id=row.ecotaxa_id,
+                new_id_ecotaxa=conflict_id,
+                new_parent_id_ecotaxa=None,
+                taxotype=NA,
+                action=DEPRECIER,
+                details=NA,
+                name_ecotaxa=NA,
+                aphia_id=None,
+                name_wrm=NA,
+                rank=None,
             )
         )
 
@@ -773,8 +816,10 @@ class WormsSynchronisation2(object):
 
     def mark_cancelled(self, ids_to_cancel: Set[int]) -> None:
         to_cancel_from_csv = list(ids_to_cancel)
-        qry = (f"UPDATE taxonomy_worms SET name = {CANCEL_MARK}||name "
-        f"WHERE id=ANY(%s) AND LEFT(name,1) != {CANCEL_MARK} ")
+        qry = (
+            f"UPDATE taxonomy_worms SET name = {CANCEL_MARK}||name "
+            f"WHERE id=ANY(%s) AND LEFT(name,1) != {CANCEL_MARK} "
+        )
         chunk = 64
         for i in range(0, len(to_cancel_from_csv), chunk):
             params = (to_cancel_from_csv[i : i + chunk],)
@@ -783,10 +828,12 @@ class WormsSynchronisation2(object):
 
     def unmark_cancelled_leaves(self, ids_to_uncancel: Set[int]) -> None:
         to_uncancel_from_csv = list(ids_to_uncancel)
-        qry = (f"UPDATE taxonomy_worms SET name = SUBSTRING(name from 2) "
-        f"WHERE id=ANY(%s) AND LEFT(name,1) = {CANCEL_MARK} "
-        "AND id NOT IN (SELECT parent_id FROM taxonomy_worms WHERE parent_id IS NOT NULL)")
-        chunk = 1 # There are 3 errors, do as much as possible
+        qry = (
+            f"UPDATE taxonomy_worms SET name = SUBSTRING(name from 2) "
+            f"WHERE id=ANY(%s) AND LEFT(name,1) = {CANCEL_MARK} "
+            "AND id NOT IN (SELECT parent_id FROM taxonomy_worms WHERE parent_id IS NOT NULL)"
+        )
+        chunk = 1  # There are 3 errors, do as much as possible
         for i in range(0, len(to_uncancel_from_csv), chunk):
             params = (to_uncancel_from_csv[i : i + chunk],)
             # print("marking ", i, " of ", len(to_cancel_from_csv))
@@ -852,16 +899,22 @@ class WormsSynchronisation2(object):
                                               left JOIN taxonomy_worms sp3 on sp2.parent_id = sp3.id)
               """
         Duplicates = []
+        def noCross(name:str):
+            if name is None:
+                return name
+            if name.startswith(CANCEL_MARK[1]):
+                return name[1:]
+            return name
         for id_, tname, pname, p2name, p3name, display_name, taxostatus in self.get_all(
             sql, {}
         ):
             Duplicates.append(
                 {
                     "id": id_,
-                    "tname": tname,
-                    "pname": pname,
-                    "p2name": p2name,
-                    "p3name": p3name,
+                    "tname": noCross(tname),
+                    "pname": noCross(pname),
+                    "p2name": noCross(p2name),
+                    "p3name": noCross(p3name),
                     "display_name": display_name,
                     "taxostatus": taxostatus,
                 }
@@ -902,8 +955,6 @@ class WormsSynchronisation2(object):
                     else:
                         cle += "<" + ntcv(D["p3name"])
                         Duplicates[i]["newname"] = cle
-            if D["taxostatus"] == "D":
-                Duplicates[i]["newname"] += " (Deprecated)"
         app.logger.debug(
             "Compute time %s ", (datetime.now() - starttime).total_seconds()
         )
@@ -936,7 +987,7 @@ class WormsSynchronisation2(object):
         )
 
     POSSIBLE_ACTIONS = [
-        (CHANGER_LE_PARENT, 'Changement parent, demande Camille M.'),
+        (CHANGER_LE_PARENT, "Changement parent, demande Camille M."),
         (CHANGER_LE_PARENT, "NA"),
         (CHANGER_LE_PARENT, CHANGER_LE_PARENT),
         (CHANGER_LE_PARENT, MORPHO_PARENT_DEPRECIE),
@@ -950,8 +1001,8 @@ class WormsSynchronisation2(object):
         (RIEN_FAIRE, "Enfant de French, garder hors arbre Worms"),
         (RIEN_FAIRE, "Rien : child of not-living"),
         (RIEN_FAIRE, "Rien : t0 or taxa not matchable"),
-        (RIEN_FAIRE, 'Rien : morpho racine Not-living'),
-        (RIEN_FAIRE, 'Rien : parent direct morpho'),
+        (RIEN_FAIRE, "Rien : morpho racine Not-living"),
+        (RIEN_FAIRE, "Rien : parent direct morpho"),
         (DEPRECIER, "NA"),
         (DEPRECIER, "deprecate to new id"),
         (DEPRECIER, "temporary associate to Biota"),
@@ -1100,6 +1151,10 @@ class WormsSynchronisation2(object):
                 line += 1
         return rows
 
+    def add_deprecation_display_name(self):
+        sql = ("UPDATE taxonomy_worms SET display_name = display_name||' (Deprecated)' "
+        "WHERE taxostatus='D'")
+        self.exec_sql(sql)
 
 wormssynchro = WormsSynchronisation2(INPUT_CSV)
 wormssynchro.do_worms_synchronisation()
