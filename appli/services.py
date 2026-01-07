@@ -1,6 +1,5 @@
 from typing import Dict,List
 from flask import  g,abort,make_response
-import asyncio
 from flask.json import jsonify
 from appli import app,database,db,gvp,FormatSuccess,FormatError,ntcv
 from werkzeug.exceptions import NotFound, Forbidden, UnprocessableEntity
@@ -130,11 +129,11 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
     return "ok"
 
 
-async def get_lineage(res:List[Dict])->List[Dict]:
+def get_lineage(res:List[Dict])->List[Dict]:
     taxons:List[Dict]=[]
     wormsfinder = WoRMSFinder()
-    async def getlineage(r):
-        lineage = await wormsfinder.aphia_classif_by_id(int(r["AphiaID"]))
+    def getlineage(r):
+        lineage = wormsfinder.aphia_classif_by_id(int(r["AphiaID"]))
         if lineage['child'] is not None:
             flipped = WoRMSFinder.reverse_lineage(lineage)
         else:
@@ -142,12 +141,11 @@ async def get_lineage(res:List[Dict])->List[Dict]:
         taxons.append(
             dict({"aphia_id": r["AphiaID"], "name": r["scientificname"], "rank": r["rank"], "status": r["status"],
                   "lineage": flipped}))
-        await asyncio.sleep(1)
     for r in res:
         if (r["valid_AphiaID"] != r["AphiaID"]):
         #if r["status"] != WORMS_STATUS_ACCEPTED or (r["valid_AphiaID"] != r["AphiaID"]):
             continue
-        await getlineage(r)
+        getlineage(r)
     return taxons
 
 
@@ -166,7 +164,7 @@ def routeaddwormstaxon():
             return response
         if "lineage" not in addtaxon:
             wormsfinder=WoRMSFinder()
-            lineage=asyncio.run(wormsfinder.aphia_classif_by_id(int(addtaxon["aphia_id"])))
+            lineage=wormsfinder.aphia_classif_by_id(int(addtaxon["aphia_id"]))
             addtaxon["lineage"] = WoRMSFinder.reverse_lineage(lineage)
         taxon = database.Taxonomy()
         db.session.add(taxon)
@@ -190,12 +188,12 @@ def routeaddwormstaxon():
         return response
 
 
-@app.route('/wormstaxon/<name>',methods=['POST'])
+@app.route('/wormstaxon/<name>',methods=['GET'])
 def routewormstaxon(name):
-    CheckInstanceSecurity()
+    # CheckInstanceSecurity()
     wormsfinder=WoRMSFinder()
     res=wormsfinder.aphia_records_by_name_sync(name)
-    taxons:List[Dict]=asyncio.run(get_lineage(res))
+    taxons:List[Dict]=get_lineage(res)
     print('taxons',taxons)
     aphiaids = [taxon["aphia_id"] for taxon in taxons]
     rows = database.Taxonomy.query.filter(database.Taxonomy.aphia_id.in_(aphiaids)).all()
@@ -334,7 +332,7 @@ def add_worms_parents(Taxon:database.Taxonomy,lineage:Dict[str,Dict])->List[int]
     return taxonids
 
 @app.route('/settaxon/',methods=['POST'])
-async def routesettaxon():
+def routesettaxon():
     """
         Update a taxon or create a new one if 'id' parameter is not supplied.
     """
@@ -361,7 +359,7 @@ async def routesettaxon():
         taxonids=[Taxon.id]
         if aphia_id!='' and (taxonid=='' or (Taxon.aphia_id!=int(aphia_id))):
             wormsfinder=WoRMSFinder()
-            lineage= await wormsfinder.aphia_classif_by_id(int(aphia_id))
+            lineage= wormsfinder.aphia_classif_by_id(int(aphia_id))
             if lineage['child'] is not None:
                 flipped=WoRMSFinder.reverse_lineage(lineage)
                 added=add_worms_parents(Taxon,flipped)

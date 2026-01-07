@@ -5,19 +5,7 @@
 # Wrapper for using http://www.marinespecies.org/index.php and its REST services
 #
 from typing import Dict, Tuple, List, Any
-import asyncio
-import httpx
 import requests
-
-async def async_sleep(tim: float):
-    """
-    Pseudo-sleep which gives control to other coroutines.
-    """
-    await asyncio.sleep(tim)
-
-
-# noinspection PyPackageRequirements,PyProtectedMember
-
 
 class WoRMSFinder(object):
     """
@@ -25,7 +13,6 @@ class WoRMSFinder(object):
     """
 
     BASE_URL = "https://www.marinespecies.org/rest/"
-    client = httpx.AsyncClient(base_url=BASE_URL, timeout=10)
     the_session = None
 
     WoRMS_URL_AphiaRecordByName = "AphiaRecordsByName/%s?marine_only=true"
@@ -49,11 +36,11 @@ class WoRMSFinder(object):
         return ret
 
     @classmethod
-    async def aphia_classif_by_id(cls, aphia_id: int) -> Any: # pragma:nocover
-        await asyncio.sleep(1)
+    def aphia_classif_by_id(cls, aphia_id: int) -> Any: # pragma:nocover
         req = cls.WoRMS_URL_ClassifByAphia % aphia_id
-        response = await cls.client.get(req, headers=[('Connection', 'close')])
-        if response.is_error:
+        session = cls.get_session()
+        response = session.get(cls.BASE_URL + req)
+        if not response.ok:
             ret = ""
         else:
             ret = response.json()
@@ -62,17 +49,16 @@ class WoRMSFinder(object):
     CHUNK_SIZE = 50
 
     @classmethod
-    async def aphia_children_by_id(
+    def aphia_children_by_id(
         cls, aphia_id: int, page=0
     ) -> Tuple[List[Dict], int]:  # pragma:nocover
-        # Throttle to 1 req/s
-        await async_sleep(1)
         res: List[Dict] = []
         chunk_num = page * cls.CHUNK_SIZE + 1
         req = cls.WoRMS_URL_ClassifChildrenByAphia % (aphia_id, chunk_num)
         nb_queries = 1
         # try:
-        response = await cls.client.get(cls.BASE_URL + req, headers=[('Connection', 'close')])
+        session = cls.get_session()
+        response = session.get(cls.BASE_URL + req)
         # Seen: httpcore._exceptions.ProtocolError: can't handle event type ConnectionClosed
         # when role=SERVER and state=SEND_RESPONSE
         # except ProtocolError as e:
@@ -83,7 +69,7 @@ class WoRMSFinder(object):
         elif response.status_code == 200:
             res = response.json()
             if len(res) == cls.CHUNK_SIZE:
-                next_page, cont_queries = await cls.aphia_children_by_id(
+                next_page, cont_queries = cls.aphia_children_by_id(
                     aphia_id, page + 1
                 )
                 res.extend(next_page)
@@ -93,20 +79,20 @@ class WoRMSFinder(object):
         return res, nb_queries
 
     @classmethod
-    async def aphia_records_by_aphiaids(cls,aphiaids:List[int], page=0)->Tuple[List[Dict],int]:
-        await async_sleep(1)
+    def aphia_records_by_aphiaids(cls,aphiaids:List[int], page=0)->Tuple[List[Dict],int]:
         res: List[Dict] = []
         chunk_num = page * cls.CHUNK_SIZE + 1
         req = cls.WoRMS_URL_AphiaRecordsByIds  % (",".join(aphiaids[chunk_num:cls.CHUNK_SIZE]))
         nb_queries = 1
-        response = await cls.client.get(cls.BASE_URL + req, headers=[('Connection', 'close')])
+        session = cls.get_session()
+        response = session.get(cls.BASE_URL + req)
         if response.status_code == 204:
             # No content
             pass
         elif response.status_code == 200:
             res = response.json()
             if len(res) == cls.CHUNK_SIZE:
-                next_page, cont_queries = await cls.aphia_records_by_aphiaids(
+                next_page, cont_queries = cls.aphia_records_by_aphiaids(
                 aphiaids, page + 1
                 )
                 res.extend(next_page)
