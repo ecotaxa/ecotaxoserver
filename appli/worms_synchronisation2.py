@@ -12,6 +12,9 @@ AJOUTER_APHIA_ID = "Ajouter aphia_id"  # Once in CSV, for living->Biota
 CHANGER_TYPE_EN_MORPHO = (
     "changer type en Morpho"  # 3 times in CSV, Protista + Chloroplast + Protoplastes
 )
+CHANGER_TYPE_EN_PHYLO = (
+    "changer type en Phylo"  # next CSV
+)
 BRANCHER_A_NOUVEL_ECOTAXA_ID = "Brancher a nouvel ecotaxa_id"
 DEPRECIER = "deprecier"
 RIEN_FAIRE = "Rien"
@@ -243,7 +246,7 @@ WORMS_TAXO_DDL = [
     """ANALYZE public.taxonomy_worms;""",
 ]
 
-INPUT_CSV = "static/tableau_ecotaxa_worms_31122025_QC.csv"
+INPUT_CSV = "static/tableau_ecotaxa_worms_05012025complet_fiches_ecopart.csv"
 
 START_OF_WORMS = 100000
 
@@ -576,6 +579,8 @@ class WormsSynchronisation2(object):
                     qry, params = self.deprecate(row)
             elif row.action == CHANGER_TYPE_EN_MORPHO:
                 qry, params = self.change_to_morpho(row)
+            elif row.action == CHANGER_TYPE_EN_PHYLO:
+                qry, params = self.change_to_phylo(row)
             elif row.action == AJOUTER_APHIA_ID:
                 qry, params = self.add_aphia_id(row, tree)
             elif (
@@ -731,6 +736,19 @@ class WormsSynchronisation2(object):
         }
         return qry, params
 
+    @staticmethod
+    def change_to_phylo(row: CsvRow) -> Tuple[str, ParamDictT]:
+        # newname = row.name_ecotaxa
+        qry = (
+            f"UPDATE /*CTM{row.i}*/ taxonomy_worms SET taxotype='P',lastupdate_datetime=%(dt)s "
+            "WHERE id=%(ecotaxa_id)s;"
+        )
+        params = {
+            "ecotaxa_id": row.ecotaxa_id,
+            # "name": row.name_wrm,
+            "dt": datetime.now(timezone.utc),
+        }
+        return qry, params
     @staticmethod
     def add_aphia_id(row: CsvRow, tree: MiniTree) -> Tuple[str, ParamDictT]:
         assert row.name_wrm != NA, row.i
@@ -1038,6 +1056,7 @@ class WormsSynchronisation2(object):
         (DEPRECIER, "temporary associate to Biota"),
         (DEPRECIER, "deprecate to morpho"),
         (CHANGER_TYPE_EN_MORPHO, "Changer en Morpho"),
+        (CHANGER_TYPE_EN_PHYLO, "Changer en Phylo"),
         (AJOUTER_APHIA_ID, "NA"),
         (CREER_NOUVELLE_CATEGORIE, "NA"),
         (CREER_NOUVELLE_CATEGORIE, CHANGER_LE_PARENT),
