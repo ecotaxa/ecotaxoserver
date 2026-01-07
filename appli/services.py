@@ -372,10 +372,10 @@ def routesettaxon():
 # Return changes on taxa tree, since given date if provided, for given id if provided
 @app.route('/gettaxon/',methods=['POST'])
 def routegettaxon():
-    sql="""select id,id_source,parent_id,rank,name,taxotype,display_name,source_url,source_desc
+    sql="""select id,aphia_id,parent_id,rank,name,taxotype,display_name,source_url,source_desc
           ,creator_email,creation_datetime,lastupdate_datetime,id_instance,taxostatus,rename_to 
           from (
-            select t.id,t.aphia_id as id_source,t.parent_id,t.rank,t.name,t.taxotype,t.display_name,t.source_url,t.source_desc
+            select t.id,t.aphia_id,t.parent_id,t.rank,t.name,t.taxotype,t.display_name,t.source_url,t.source_desc
             ,t.creator_email
             ,to_char(t.creation_datetime,'YYYY-MM-DD HH24:MI:SS') creation_datetime
             ,to_char(t.lastupdate_datetime,'YYYY-MM-DD HH24:MI:SS') lastupdate_datetime
@@ -383,7 +383,7 @@ def routegettaxon():
             ,t.id_instance,t.taxostatus,t.rename_to 
             from taxonomy_worms t
             UNION ALL
-            select g.id, g.aphia_id as id_source, g.parent_id, g.rank, g.name, g.taxotype, g.display_name, g.source_url, g.source_desc
+            select g.id, g.aphia_id, g.parent_id, g.rank, g.name, g.taxotype, g.display_name, g.source_url, g.source_desc
             , g.creator_email
             , to_char(g.creation_datetime,'YYYY-MM-DD HH24:MI:SS') creation_datetime
             , to_char(g.lastupdate_datetime,'YYYY-MM-DD HH24:MI:SS') lastupdate_datetime
