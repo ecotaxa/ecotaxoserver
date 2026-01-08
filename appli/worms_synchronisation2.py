@@ -580,6 +580,12 @@ class WormsSynchronisation2(object):
             elif row.action == CHANGER_TYPE_EN_MORPHO:
                 qry, params = self.change_to_morpho(row)
             elif row.action == CHANGER_TYPE_EN_PHYLO:
+                # Is now a composite: change to phylo + make aphia + change parent
+                assert tree.get_parent(row.ecotaxa_id) != row.new_id_ecotaxa
+                qry, params = self.change_parent(row, tree)
+                self.exec_sql(qry, params)
+                qry, params = self.add_aphia_id(row, tree)
+                self.exec_sql(qry, params)
                 qry, params = self.change_to_phylo(row)
             elif row.action == AJOUTER_APHIA_ID:
                 qry, params = self.add_aphia_id(row, tree)
