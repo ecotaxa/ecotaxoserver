@@ -9,6 +9,7 @@ import json,re,time,psycopg2.extras,random,datetime
 WORMS_STATUS_ACCEPTED ='accepted'
 DEFAULT_WORMS_STATUS='A'
 DEFAULT_WORMS_TYPE='P'
+WORMS_URL = "https://www.marinespecies.org/aphia.php?p=taxdetails&id="
 def ComputeDisplayName(TaxoList:list):
     """
     Compute display_name column in database, for the list of provided id
@@ -313,6 +314,7 @@ def add_worms_parents(Taxon:database.Taxonomy,lineage:Dict[str,Dict])->List[int]
             for k, v in taxon.items():
                 setattr(parent, taxonomykeys[k], v)
             setattr(parent, 'creation_datetime', dt)
+            setattr(parent, 'source_url', WORMS_URL+str(parent.aphia_id))
             setattr(parent, 'taxonstatus', DEFAULT_WORMS_STATUS)
             setattr(parent, 'taxotype', DEFAULT_WORMS_TYPE)
             setattr(parent, 'creator_email', Taxon.creator_email)
@@ -372,7 +374,7 @@ def routesettaxon():
 # Return changes on taxa tree, since given date if provided, for given id if provided
 @app.route('/gettaxon/',methods=['POST'])
 def routegettaxon():
-    sql="""select id,aphia_id,parent_id,rank,name,taxotype,display_name,source_url,source_desc
+    sql="""select id,aphia_id,aphia_id as id_source,parent_id,rank,name,taxotype,display_name,source_url,source_desc
           ,creator_email,creation_datetime,lastupdate_datetime,id_instance,taxostatus,rename_to 
           from (
             select t.id,t.aphia_id,t.parent_id,t.rank,t.name,t.taxotype,t.display_name,t.source_url,t.source_desc
