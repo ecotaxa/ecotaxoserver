@@ -43,8 +43,8 @@ Click on ID and ParentID to set Parent filter. Click on display name to show and
 </thead>
 <tbody>
 {% for l in lst %}
-  <tr><td>{{l.id}}</td><td>{{l.aphia_id or ''}}</td><td>{{l.parent_id}}</td><td>{{l.rank or ''}}</td></td><td>{{l.name}}</td><td>{{l.taxotype}}</td><td>{{l.taxostatus}}</td>
-  <td>{{l.creator_email or ''}}</td><td>{{l.creation_datetime or ''}}</td><td>{{l.lastupdate_datetime}}</td><td>{{l.tree}}</td>
+  <tr><td>{{l.id}}</td><td>{{l.aphia_id or ''}}</td><td>{{l.parent_id}}</td><td>{{l.rank or ''}}</td></td><td>{{l.name | safe}}</td><td>{{l.taxotype}}</td><td>{{l.taxostatus}}</td>
+  <td>{{l.creator_email or ''}}</td><td>{{l.creation_datetime or ''}}</td><td>{{l.lastupdate_datetime}}</td><td>{{l.tree | safe}}</td>
   </tr>
 {% endfor %}
 </tbody>

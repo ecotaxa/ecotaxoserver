@@ -18,6 +18,8 @@ from flask_security.decorators import roles_accepted,login_required
 
 SQLTreeSelect="""concat(t14.name||'>',t13.name||'>',t12.name||'>',t11.name||'>',t10.name||'>',t9.name||'>',t8.name||'>',t7.name||'>',
      t6.name||'>',t5.name||'>',t4.name||'>',t3.name||'>',t2.name||'>',t1.name||'>',t.name) tree"""
+SQLStatusSelect="""concat(t14.taxostatus,t13.taxostatus,t12.taxostatus,t11.taxostatus,t10.taxostatus,t9.taxostatus,t8.taxostatus,t7.taxostatus,
+     t6.taxostatus,t5.taxostatus,t4.taxostatus,t3.taxostatus,t2.taxostatus,t1.taxostatus,t.taxostatus) statuses"""
 SQLTreeJoin="""left join taxonomy_worms t1 on t.parent_id=t1.id
       left join taxonomy_worms t2 on t1.parent_id=t2.id
       left join taxonomy_worms t3 on t2.parent_id=t3.id
@@ -45,16 +47,13 @@ def PackTreeTxt(txt):
 @app.route('/browsetaxo/')
 def browsetaxo():
     lst=GetAll("""select t.id,t.aphia_id,t.parent_id,t.rank,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email
-      ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,{}
+      ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,{},{},t.rename_to
     from taxonomy_worms t
     {}
     order by t.id
     LIMIT 200
-    """.format(SQLTreeSelect,SQLTreeJoin))
-    for lstitem in lst:
-        # lstitem['tree']=PackTreeTxt(lstitem['tree']) #evite les problèmes de safe
-        if lstitem['parent_id'] is None:
-            lstitem['parent_id']=""
+    """.format(SQLTreeSelect,SQLStatusSelect,SQLTreeJoin))
+    postprocess(lst)
 
     nbrtaxon=GetAll("select count(*) from taxonomy_worms")[0][0]
     g.AdminLists=GetAll("select email,name from users where email like '%@%' and active=TRUE order by 2")
@@ -65,11 +64,11 @@ def browsetaxo():
 def browsetaxoajax():
     sql="""select t.id,t.aphia_id,t.parent_id,t.rank,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email
       ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,
-      {}, t.rename_to
+      {},{}, t.rename_to
     from taxonomy_worms t 
     {}
     where 1=1
-    """.format(SQLTreeSelect,SQLTreeJoin)
+    """.format(SQLTreeSelect,SQLStatusSelect,SQLTreeJoin)
     params={}
     sqlcrit=""
     start=0
@@ -122,12 +121,7 @@ def browsetaxoajax():
         orderclause=" order by {} {}".format(int(gvp('order[0][column]'))+1,'desc' if gvp('order[0][dir]')=='desc' else 'asc')
     sql += sqlcrit+orderclause+ (" offset {} limit {}".format(start,length))
     lst = GetAll(sql,params)
-    for lstitem in lst: # Post traitement sur les chaines
-        lstitem['tree']=PackTreeTxt(lstitem['tree'])
-        lstitem['name']=XSSEscape(lstitem['name'] or '???')
-        lstitem['name'] += "⇢"+str(lstitem['rename_to']) if lstitem['rename_to'] is not None else ""
-        if lstitem['parent_id'] is None:
-            lstitem['parent_id']=""
+    postprocess(lst)
 
     sqlcount +=sqlcrit
     if len(lst)>=length or start!=0:
@@ -138,6 +132,25 @@ def browsetaxoajax():
     res={'draw':int(gvp('draw')),'recordsTotal':nbrtaxon,'recordsFiltered':recordsFiltered,'data':lst}
 
     return json.dumps(res)
+
+def postprocess(lst):
+    for lstitem in lst: # Post traitement sur les chaines
+        lineage = lstitem['tree'].split('>')
+        statuses = lstitem['statuses']
+        names = []
+        for l, s in zip(lineage, statuses):
+            if s == 'D':
+                names.append(f"<s>{l}</s>")
+            else:
+                names.append(l)
+        lineage = ">".join(names)
+        lstitem['tree']=PackTreeTxt(lineage)
+        lstitem['name']=XSSEscape(lstitem['name'] or '???')
+        if lstitem['taxostatus'] == "D":
+            lstitem['name'] = "<s>"+lstitem['name']+"</s>"
+        lstitem['name'] += "⇢"+str(lstitem['rename_to']) if lstitem['rename_to'] is not None else ""
+        if lstitem['parent_id'] is None:
+            lstitem['parent_id']=""
 
 @app.route('/browsetaxotsvexport/')
 def browsetaxotsvexport():
