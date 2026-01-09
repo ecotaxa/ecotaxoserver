@@ -94,7 +94,7 @@ def list_taxonomy_lineage(db, filename):
                     ko += 1
             rows += 1
         print("Total rows: ", rows, file=f)
-        print(f"Total rows {rows} checked {checked} KO {ko}")
+        print(f"Total rows {rows} checked {checked} KO {ko}, see {filename}")
 
 
 URL = "https://www.marinespecies.org/rest/AphiaClassificationByAphiaID/{aphia_id}"
@@ -133,8 +133,37 @@ def fetch_worms(db):
     print("Final cache save completed.")
 
 
+RULES = [
+    (
+        """select * from taxonomy_worms where aphia_id is not null and rank is null""",
+        "consistent aphia",
+    ),
+    ("""select * from taxonomy_worms where rank = 'None'""", "bad rank"),
+    ("""select txc.id, txc.name, txp.id as parent_id, txp.name as parent_name, txp.aphia_id as parent_aphia from taxonomy_worms txc
+  join taxonomy_worms txp on txp.id = txc.parent_id
+ where txc.aphia_id is not null
+   and txp.aphia_id is null""", "WoRMS child non-WoRMS parent"),
+    ("""select txc.id, txc.name, txp.id as parent_id, txp.name as parent_name, txp.aphia_id as parent_aphia from taxonomy_worms txc
+  join taxonomy_worms txp on txp.id = txc.parent_id
+ where txc.aphia_id is null and txc.taxotype != 'M' and txc.taxostatus != 'D'
+   and txp.aphia_id is not null
+order by txc.id""", "bad dead branch start"),
+]
+
+
+def check_rules(db):
+    cnx = db.engine.raw_connection()
+    for a_rule, text in RULES:
+        with cnx.cursor() as cur:
+            cur.execute(a_rule)
+            res = cur.fetchall()
+        if res:
+            print(f"Rule: {text} KO", res)
+
+
 if __name__ == "__main__":
     from appli import db
 
     fetch_worms(db)
     list_taxonomy_lineage(db, "new_taxo.txt")
+    check_rules(db)
