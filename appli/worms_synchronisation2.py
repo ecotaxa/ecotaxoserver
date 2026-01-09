@@ -60,7 +60,7 @@ EMBEDDED = (
     93491,
     85039,
     85025,
-)
+) # Now in CSV
 
 
 class MiniTree:
@@ -348,7 +348,7 @@ class WormsSynchronisation2(object):
                 )
                 if existing_id is not None:
                     # Replace a create+delete old with an ID redirection and aphia update
-                    print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", existing_id)
+                    # print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", existing_id)
                     row2 = row._replace(ecotaxa_id=existing_id)
                     qry, params = self.add_aphia_id(row2, tree)
                     mapped_ids[row.ecotaxa_id] = existing_id
@@ -361,6 +361,8 @@ class WormsSynchronisation2(object):
                 qry, params = self.create_row(row, tree)
             self.exec_sql(qry, params)
             self.log_query(action_logs[row.action], qry, params)
+
+        print("Redirections (asked:served): ", mapped_ids)
 
         parent_changes = [
             a_row for a_row in actions if a_row.action == CHANGER_LE_PARENT
@@ -383,13 +385,15 @@ class WormsSynchronisation2(object):
                     row.name_ecotaxa if row.aphia_id is None else row.name_wrm,
                 )
                 if existing_id is not None:
+                    print("Cannot apply verbatim", row)
                     if not tree.is_leaf(existing_id):
                         # print("Not a leaf CPR:",tree.get_one(existing_id),row)
                         if existing_id in ids_to_deprecate:
                             self.exec_sql(MARK_DEPRECATED_SQL, {"id": existing_id})
+                            self.log_query(action_logs[row.action], qry, params)
                         elif existing_id in ids_to_suppress:
-                            # ids_to_suppress.remove(existing_id)
                             self.exec_sql(MARK_CANCELLED_SQL, {"id": existing_id})
+                            self.log_query(action_logs[row.action], qry, params)
                         else:
                             assert False, (existing_id, row)
                         qry, params = self.change_parent(row, tree)
@@ -432,13 +436,15 @@ class WormsSynchronisation2(object):
                     row.new_parent_id_ecotaxa, row.name_wrm
                 )
                 if existing_id is not None and existing_id != row.ecotaxa_id:
+                    print("Cannot apply verbatim", row)
                     if not tree.is_leaf(existing_id):
                         # print("Not a leaf AAI:", tree.get_one(existing_id), row)
                         if existing_id in ids_to_deprecate:
                             self.exec_sql(MARK_DEPRECATED_SQL, {"id": existing_id})
+                            self.log_query(action_logs[row.action], qry, params)
                         elif existing_id in ids_to_suppress:
-                            # ids_to_suppress.remove(existing_id)
                             self.exec_sql(MARK_CANCELLED_SQL, {"id": existing_id})
+                            self.log_query(action_logs[row.action], qry, params)
                         else:
                             assert False, (existing_id, row)
                         qry, params = self.add_aphia_id(row, tree)
@@ -583,9 +589,11 @@ class WormsSynchronisation2(object):
                 # Is now a composite: change to phylo + make aphia + change parent
                 assert tree.get_parent(row.ecotaxa_id) != row.new_id_ecotaxa
                 qry, params = self.change_parent(row, tree)
+                self.log_query(action_logs[row.action], qry, params)
                 self.exec_sql(qry, params)
                 qry, params = self.add_aphia_id(row, tree)
                 self.exec_sql(qry, params)
+                self.log_query(action_logs[row.action], qry, params)
                 qry, params = self.change_to_phylo(row)
             elif row.action == AJOUTER_APHIA_ID:
                 qry, params = self.add_aphia_id(row, tree)
@@ -627,8 +635,10 @@ class WormsSynchronisation2(object):
 
         self.unmark_cancelled_and_deleted(not_deleted) # was marked cancelled but could not be deleted
 
+        self.mark_deleted_as_deprecated(not_deleted)
+
         self.compute_display_names()
-        self.add_deprecation_display_name()
+        # self.add_deprecation_display_name()
 
         self.serverdb.commit()
 
@@ -746,7 +756,7 @@ class WormsSynchronisation2(object):
     def change_to_phylo(row: CsvRow) -> Tuple[str, ParamDictT]:
         # newname = row.name_ecotaxa
         qry = (
-            f"UPDATE /*CTM{row.i}*/ taxonomy_worms SET taxotype='P',lastupdate_datetime=%(dt)s "
+            f"UPDATE /*CTP{row.i}*/ taxonomy_worms SET taxotype='P',lastupdate_datetime=%(dt)s "
             "WHERE id=%(ecotaxa_id)s;"
         )
         params = {
@@ -876,10 +886,31 @@ class WormsSynchronisation2(object):
             f"WHERE id=ANY(%s) AND LEFT(name,2) = {DELETE_MARK}||{CANCEL_MARK} "
             #"AND id NOT IN (SELECT parent_id FROM taxonomy_worms WHERE parent_id IS NOT NULL)"
         )
-        chunk = 1  # There are 3 errors, do as much as possible
+        chunk = 64
         for i in range(0, len(to_uncancel_from_csv), chunk):
             params = (to_uncancel_from_csv[i : i + chunk],)
             # print("marking ", i, " of ", len(to_cancel_from_csv))
+            self.exec_sql(qry, params)
+
+    def mark_deleted_as_deprecated(self, ids_to_mark: Set[int]) -> None:
+        to_uncancel_from_csv = list(ids_to_mark)
+        qry = (
+            f"UPDATE taxonomy_worms "
+            f"SET name = SUBSTRING(name from 2), taxostatus = 'D', lastupdate_datetime=%s "
+            f"WHERE id=ANY(%s) AND LEFT(name,1) = {DELETE_MARK}"
+        )
+        chunk = 1
+        for i in range(0, len(to_uncancel_from_csv), chunk):
+            params = (datetime.now(timezone.utc), to_uncancel_from_csv[i : i + chunk])
+            self.exec_sql(qry, params)
+        qry = (
+            f"UPDATE taxonomy_worms "
+            f"SET name = {DEPRECATED_MARK}||SUBSTRING(name from 2), taxostatus = 'D', lastupdate_datetime=%s "
+            f"WHERE id=ANY(%s) AND LEFT(name,1) = {DELETE_MARK}"
+        )
+        chunk = 1
+        for i in range(0, len(to_uncancel_from_csv), chunk):
+            params = (datetime.now(timezone.utc), to_uncancel_from_csv[i : i + chunk])
             self.exec_sql(qry, params)
 
     def delete_unused_taxa(self, ids_to_delete: Set[int]) -> Set[int]:
@@ -892,11 +923,11 @@ class WormsSynchronisation2(object):
                 "WHERE id=ANY(%s) "
                 "AND id NOT IN (SELECT parent_id FROM taxonomy_worms WHERE parent_id IS NOT NULL)"
                 "AND NOT EXISTS (SELECT 1 FROM ecotaxainststat "
-                "                 WHERE id_taxon=id AND id_instance=1 /*LOV*/)"
+                "                 WHERE id_taxon=id AND id_instance in(1, 8) /*LOV + Watertools*/)"
             )
             res = self.get_all(qry, (to_del_from_csv,))
             safe_ids = [cat_id for (cat_id,) in res]
-            print("About to delete safely", len(safe_ids))
+            # print("About to delete safely", len(safe_ids))
 
             self.serverdb.commit()
             if len(safe_ids) == 0:
