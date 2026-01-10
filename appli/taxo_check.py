@@ -148,6 +148,10 @@ RULES = [
  where txc.aphia_id is null and txc.taxotype != 'M' and txc.taxostatus != 'D'
    and txp.aphia_id is not null
 order by txc.id""", "bad dead branch start"),
+   ("""select * from taxonomy_worms
+ where taxostatus = 'D'
+   and exists(select 1 from ecotaxainststat where id_instance in (1,8) and id_taxon=id )
+  and rename_to is null""", "deprecated with objects but no replacement"),
 ]
 
 
