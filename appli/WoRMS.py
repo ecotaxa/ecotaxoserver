@@ -36,14 +36,25 @@ class WoRMSFinder(object):
         return ret
 
     @classmethod
-    def aphia_classif_by_id(cls, aphia_id: int) -> Any: # pragma:nocover
+    def aphia_classif_by_id(cls, aphia_id: int, flatten=False) -> List[Dict]:
+        """ Return basic information in lineage odrer, from Biota to requested"""
         req = cls.WoRMS_URL_ClassifByAphia % aphia_id
         session = cls.get_session()
         response = session.get(cls.BASE_URL + req)
         if not response.ok:
-            ret = ""
+            return []
         else:
-            ret = response.json()
+            rsp = response.json()
+        # The response is a nested structure, flatten it
+        if not flatten:
+            return rsp
+        ret = []
+        while True:
+            ret.append({k: v for k,v in rsp.items() if k != "child"})
+            child = rsp.get('child')
+            if child is None:
+                break
+            rsp = child
         return ret
 
     CHUNK_SIZE = 50
@@ -111,6 +122,7 @@ class WoRMSFinder(object):
     @classmethod
     def invalidate_session(cls):
         cls.the_session = None
+
     @staticmethod
     def reverse_lineage(lineage: dict):
         keys = list(lineage.keys())
@@ -120,6 +132,7 @@ class WoRMSFinder(object):
         flipped = WoRMSFinder.get_lineage(lineage, keys, flipped)
         rev = dict(reversed(list(flipped.items())))
         return rev
+
     @staticmethod
     def get_lineage(lineage: dict,keys:list, flipped: dict):
         child = lineage['child']

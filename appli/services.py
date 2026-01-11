@@ -1,10 +1,10 @@
-from typing import Dict,List
+from datetime import datetime
+from typing import Dict,List, Any
 from flask import  g,abort,make_response
 from flask.json import jsonify
 from appli import app,database,db,gvp,FormatSuccess,FormatError,ntcv
-from werkzeug.exceptions import NotFound, Forbidden, UnprocessableEntity
 from appli.WoRMS import WoRMSFinder
-from appli.database import ExecSQL
+from appli.database import ExecSQL, Taxonomy
 import json,re,time,psycopg2.extras,random,datetime
 WORMS_STATUS_ACCEPTED ='accepted'
 DEFAULT_WORMS_STATUS='A'
@@ -68,8 +68,6 @@ def ComputeDisplayName(TaxoList:list):
                 else:
                     cle += '<' + ntcv(D['p3name'])
                     Duplicates[i]['newname'] = cle
-        if D['taxostatus']=='D':
-            Duplicates[i]['newname'] += " (Deprecated)"
 
     app.logger.debug("Compute time %s ", (datetime.datetime.now() - starttime).total_seconds())
     starttime = datetime.datetime.now()
@@ -102,8 +100,11 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
     if len(name)<3:
         return "Name too short 3 characters min."
     if parent:
-        if len(database.GetAll("select id from taxonomy_worms where id=%s",[parent]))!=1:
+        parent = database.GetAll("select id, aphia_id from taxonomy_worms where id=%s",[parent])
+        if len(parent)!=1:
             return "invalid parent, doesn't exists in database"
+        if parent[0]["aphia_id"] is not None:
+            return "cannot create a WoRMS child using this form"
     if taxotype == 'P' : # Phylo
         # if not re.match(r"^[A-Z][a-z+\-']{2,} ?[a-z+\-']*$", name):
         if not re.match(r"^[A-Z][a-z+\-']{2,}( [a-z+\-']+)*$", name):
@@ -153,51 +154,46 @@ def get_lineage(res:List[Dict])->List[Dict]:
 @app.route('/addwormstaxon/',methods=['POST'])
 def routeaddwormstaxon():
     CheckInstanceSecurity()
-    param=gvp("taxon")
-    addtaxon=json.loads(param)
-    if addtaxon is None:
-       return None
+    aphia_id = gvp("aphia_id")
+    creator = gvp("creator_email")
+    if aphia_id is None or creator is None:
+        return "Invalid parameters"
+    try:
+        aphia_id = int(aphia_id)
+    except ValueError:
+        return "Invalid parameters"
+    rsp = add_worms_taxon(aphia_id, creator)
+    return rsp
+
+def add_worms_taxon(aphia_id:int, creator:str) -> Any:
     with TaxoOperationLocker():
         app.logger.info('In Locker')
-        taxoexist = database.Taxonomy.query.filter(database.Taxonomy.aphia_id == int(addtaxon["aphia_id"])).first()
-        if taxoexist is not None:
-            response = make_response(json.dumps({"error":"taxon with aphia_id %s already exist." % addtaxon["aphia_id"]}), 422)
+        taxo_exist = Taxonomy.query.filter(Taxonomy.aphia_id == aphia_id).first()
+        if taxo_exist is not None:
+            err = {"error":"taxon with aphia_id %s already exist." % aphia_id}
+            response = make_response(json.dumps(err), 422)
             return response
-        if "lineage" not in addtaxon:
-            wormsfinder=WoRMSFinder()
-            lineage=wormsfinder.aphia_classif_by_id(int(addtaxon["aphia_id"]))
-            addtaxon["lineage"] = WoRMSFinder.reverse_lineage(lineage)
-        taxon = database.Taxonomy()
-        db.session.add(taxon)
-        taxon.name = addtaxon["name"]
-        taxon.taxotype = "P"
-        taxon.aphia_id = addtaxon["aphia_id"]
-        taxon.rank = addtaxon["rank"]
-        taxon.creator_email = addtaxon["creator_email"]
-        taxon.taxostatus = DEFAULT_WORMS_STATUS
-        taxon.creation_datetime = datetime.datetime.now(datetime.timezone.utc)
-        taxon.id_instance = int(gvp('id_instance'))
-        taxon.lastupdate_datetime = datetime.datetime.now(datetime.timezone.utc)
-        lineage=addtaxon["lineage"]
-        db.session.commit()
-        taxonids = [taxon.id]
-        if lineage is not None:
-            added = add_worms_parents(taxon,lineage)
-            taxonids.extend(added)
-        ComputeDisplayName(taxonids)
-        response = make_response(json.dumps({"success":"taxon "+addtaxon["name"]+" and lineage added"}), 200)
+        worms_finder = WoRMSFinder()
+        lineage = worms_finder.aphia_classif_by_id(aphia_id, flatten=True)
+        # Check both ends of lineage
+        assert lineage[0]["scientificname"] == "Biota"
+        to_create = lineage[-1]
+        assert to_create["AphiaID"] == aphia_id
+        parents = create_worms_lineage(lineage, creator)
+        ComputeDisplayName(parents)
+        msg = {"success":"taxon "+to_create["scientificname"]+" and lineage added"}
+        response = make_response(json.dumps(msg), 200)
         return response
 
 
-@app.route('/wormstaxon/<name>',methods=['GET'])
+@app.route('/wormstaxon/<name>',methods=['GET', 'POST'])
 def routewormstaxon(name):
     # CheckInstanceSecurity()
     wormsfinder=WoRMSFinder()
     res=wormsfinder.aphia_records_by_name_sync(name)
     taxons:List[Dict]=get_lineage(res)
-    print('taxons',taxons)
     aphiaids = [taxon["aphia_id"] for taxon in taxons]
-    rows = database.Taxonomy.query.filter(database.Taxonomy.aphia_id.in_(aphiaids)).all()
+    rows = Taxonomy.query.filter(Taxonomy.aphia_id.in_(aphiaids)).all()
     founds = {row.aphia_id:row.id for row in rows}
     for taxon in taxons:
         if taxon["aphia_id"] in founds.keys():
@@ -276,8 +272,8 @@ def CheckTaxonUpdateRight(Taxon):
 def UpdateObjectFromForm(taxon):
     taxon.parent_id= gvp('parent_id')
     taxon.name= gvp('name')
-    taxon.taxotype= gvp('taxotype')
-    taxon.aphia_id= gvp('aphia_id')
+    taxon.taxotype= gvp('taxotype') if gvp('taxotype') else None
+    taxon.aphia_id= gvp('aphia_id') if gvp('aphia_id') else None
     taxon.rank = gvp('rank')
     taxon.source_url= gvp('source_url')
     taxon.source_desc= gvp('source_desc')
@@ -297,41 +293,46 @@ def UpdateObjectFromForm(taxon):
             abort(jsonify(msg="invalid rename_to value"))
     taxon.rename_to= gvp('rename_to') or None
 
-def add_worms_parents(Taxon:database.Taxonomy,lineage:Dict[str,Dict])->List[int]:
-    taxonomykeys = {'AphiaID': 'aphia_id', 'scientificname': 'name', 'rank': 'rank', 'creation_datetime': 'modified'}
-    taxonids=[]
-
-    def add_parent(aphiaid:str,dbtaxon:database.Taxonomy):
-        if aphiaid not in lineage.keys():
-            return
-        taxon = lineage[aphiaid]
-
-        search = database.Taxonomy.query.filter(database.Taxonomy.aphia_id==int(taxon["AphiaID"])).first()
-        dt = datetime.datetime.now(datetime.timezone.utc)
+def create_worms_lineage(wrms_lineage:List[Dict[str,str]], creator:str)->List[int]:
+    dt = datetime.datetime.now(datetime.timezone.utc)
+    impacted_ids=[]
+    def add_lineage(lineage:List[Dict[str,str]], parent_id:int):
+        wrms_taxon = lineage[0]
+        search = Taxonomy.query.filter(
+            Taxonomy.aphia_id==int(wrms_taxon["AphiaID"])).first()
         if search is None:
-            parent = database.Taxonomy()
-            db.session.add(parent)
-            for k, v in taxon.items():
-                setattr(parent, taxonomykeys[k], v)
-            setattr(parent, 'creation_datetime', dt)
-            setattr(parent, 'source_url', WORMS_URL+str(parent.aphia_id))
-            setattr(parent, 'taxonstatus', DEFAULT_WORMS_STATUS)
-            setattr(parent, 'taxotype', DEFAULT_WORMS_TYPE)
-            setattr(parent, 'creator_email', Taxon.creator_email)
-            setattr(parent, 'lastupdate_datetime', dt)
-            db.session.commit()
-            dbtaxon.parent_id = parent.id
-            dbtaxon.lastupdate_datetime = dt
-            db.session.commit()
-            taxonids.append(parent.id)
-            add_parent(str(parent.aphia_id),parent)
+            parent = add_taxonomy_from_worms(wrms_taxon,parent_id,dt,creator)
+            parent_id = parent.id
+            assert parent_id is not None
         else:
-            dbtaxon.parent_id=search.id
-            dbtaxon.lastupdate_datetime = dt
-            db.session.commit()
+            parent_id = search.id
+        impacted_ids.append(parent_id)
+        db.session.commit()
+        if len(lineage)>1:
+            add_lineage(lineage[1:], parent_id)
 
-    add_parent(str(Taxon.aphia_id), Taxon)
-    return taxonids
+    add_lineage(wrms_lineage, -1)
+    return impacted_ids
+
+def add_taxonomy_from_worms(wrms_taxon: dict, parent_id:int, dt: datetime.datetime, creator: str) -> Taxonomy :
+    added = Taxonomy()
+    db.session.add(added)
+    added.parent_id = parent_id
+    added.aphia_id = wrms_taxon["AphiaID"]
+    added.name = wrms_taxon["scientificname"]
+    added.rank = wrms_taxon["rank"]
+    added.creation_datetime = dt
+    added.source_url = WORMS_URL+str(added.aphia_id)
+    added.taxonstatus = DEFAULT_WORMS_STATUS
+    added.taxotype = DEFAULT_WORMS_TYPE
+    added.creator_email = creator
+    added.lastupdate_datetime = added.creation_datetime
+    try:
+        added.id_instance = int(gvp('id_instance'))
+    except:
+        added.id_instance = 0
+    db.session.commit()
+    return added
 
 @app.route('/settaxon/',methods=['POST'])
 def routesettaxon():
@@ -351,20 +352,20 @@ def routesettaxon():
         if msg!='ok':
             return jsonify(msg=msg)
         if taxonid!='':
-            Taxon = database.Taxonomy.query.filter(id==int(taxonid))
+            Taxon = Taxonomy.query.filter(id==int(taxonid))
             CheckTaxonUpdateRight(Taxon)
         else:
-            Taxon=database.Taxonomy()
+            Taxon=Taxonomy()
             db.session.add(Taxon)
         UpdateObjectFromForm(Taxon)
         db.session.commit()
         taxonids=[Taxon.id]
         if aphia_id!='' and (taxonid=='' or (Taxon.aphia_id!=int(aphia_id))):
             wormsfinder=WoRMSFinder()
-            lineage= wormsfinder.aphia_classif_by_id(int(aphia_id))
+            lineage = wormsfinder.aphia_classif_by_id(int(aphia_id))
             if lineage['child'] is not None:
                 flipped=WoRMSFinder.reverse_lineage(lineage)
-                added=add_worms_parents(Taxon,flipped)
+                added=create_worms_lineage(Taxon,flipped)
                 taxonids.extend(added)
             else:
                 taxonids=[]
