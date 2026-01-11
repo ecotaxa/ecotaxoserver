@@ -58,6 +58,22 @@ def to_lineage(dct: dict):
     return ret
 
 
+def common_but_last(path1: str, path2: str) -> str:
+    # e.g.: Cyclopida(1381344) > Cyclopidae(106413) > Cyclops(149782)
+    # and   Cyclopida(1381344) > Cyclopidae(106413) > Cyclopinae(1809006) > Cyclops(149782)
+    # returns Cyclopida(1381344), the path ending at parent of the diverging node
+    parts1 = [p.strip() for p in path1.split(">")]
+    parts2 = [p.strip() for p in path2.split(">")]
+    common = []
+    for p1, p2 in zip(parts1, parts2):
+        if p1 == p2:
+            common.append(p1)
+        else:
+            break
+    if len(common) > 1:
+        return " > ".join(common[:-1])
+    return ""
+
 def list_taxonomy_lineage(db, filename):
     cnx = db.engine.raw_connection()
     with cnx.cursor() as cur:
@@ -87,8 +103,11 @@ def list_taxonomy_lineage(db, filename):
                         if f"({a_failed})" in worms:
                             seen = True
                     if not seen:
-                        print(f"DB: {cat_id:6} {db_worms_lineage}", file=f)
-                        print(f"GET:       {worms}", file=f)
+                        common = common_but_last(db_worms_lineage, worms)
+                        len_c = len(common)
+                        print(f"DB: {cat_id:6} {db_worms_lineage[len_c:]}", file=f)
+                        print(f"GET:       {worms[len_c:]}", file=f)
+                        print(f"=== {common}", file=f)
                         print(f"!== ", file=f)
                         failed_aphia_ids.add(aphia_id)
                     ko += 1
@@ -162,7 +181,8 @@ def check_rules(db):
             cur.execute(a_rule)
             res = cur.fetchall()
         if res:
-            print(f"Rule: {text} KO", res)
+            for a_rec in res:
+                print(f"Rule: {text} KO", a_rec)
 
 
 if __name__ == "__main__":
