@@ -237,6 +237,8 @@ WORMS_TAXO_DDL = [
     """ALTER TABLE public.seq_taxonomy_worms OWNER TO postgres;""",
     """CREATE UNIQUE INDEX is_taxo_worms_parent_name
         on public.taxonomy_worms (parent_id, name);""",
+    """CREATE UNIQUE INDEX is_taxo_worms_aphia_id
+        on public.taxonomy_worms (aphia_id);""",
     """CREATE INDEX "is_taxo_worms_name_lower"
         on public.taxonomy_worms (lower(name::text));""",
     """CREATE INDEX "is_taxo_worms_parent"
@@ -622,7 +624,7 @@ class WormsSynchronisation2(object):
                 self.exec_sql(qry, params)
                 self.log_query(action_logs[row.action], qry, params)
 
-        qry = "SELECT setval('seq_taxonomy_worms', COALESCE((SELECT MAX(id) FROM taxonomy_worms), 1), false);"
+        qry = "SELECT setval('seq_taxonomy_worms', COALESCE((SELECT MAX(id)+1 FROM taxonomy_worms), 1), false);"
         self.exec_sql(qry)
 
         self.mark_cancelled(ids_to_suppress)
