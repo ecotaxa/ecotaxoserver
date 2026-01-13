@@ -76,12 +76,7 @@ class MiniTree:
         for child, name, parent in res:
             assert parent != child
             assert child is not None
-            self.names[child] = name
-            self.parents[child] = parent
-            try:
-                self.children[parent].append(child)
-            except KeyError:
-                self.children[parent] = [child]
+            self.store_node(parent, name, child)
 
     def existing_child(
         self, parent_id: Union[int, None], name: str
@@ -95,7 +90,7 @@ class MiniTree:
         assert len(already_there) == 1
         return already_there[0]
 
-    def store_child(self, parent_id: Union[int, None], name: str, child_id: int):
+    def store_node(self, parent_id: Union[int, None], name: str, child_id: int):
         assert name != NA
         self.names[child_id] = name
         self.parents[child_id] = parent_id
@@ -160,6 +155,8 @@ FOREIGN_KEY_2 = """ALTER TABLE public.taxonomy_worms
         ADD CONSTRAINT taxonomy_worms_rename_to_fkey FOREIGN KEY (rename_to) REFERENCES public.taxonomy_worms (id);"""
 FOREIGN_KEY_1 = """ALTER TABLE public.taxonomy_worms
         ADD CONSTRAINT taxonomy_worms_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.taxonomy_worms (id);"""
+NAME_UNICITY = """CREATE UNIQUE INDEX is_taxo_worms_parent_name
+        on public.taxonomy_worms (parent_id, name);"""
 
 WORMS_TAXO_DDL = [
     """DROP TABLE if exists gone_taxa;""",
@@ -235,8 +232,7 @@ WORMS_TAXO_DDL = [
         CACHE 1
         OWNED BY taxonomy_worms.id;""",
     """ALTER TABLE public.seq_taxonomy_worms OWNER TO postgres;""",
-    """CREATE UNIQUE INDEX is_taxo_worms_parent_name
-        on public.taxonomy_worms (parent_id, name);""",
+    NAME_UNICITY,
     """CREATE UNIQUE INDEX is_taxo_worms_aphia_id
         on public.taxonomy_worms (aphia_id);""",
     """CREATE INDEX "is_taxo_worms_name_lower"
@@ -629,11 +625,9 @@ class WormsSynchronisation2(object):
 
         self.mark_cancelled(ids_to_suppress)
 
-        for fk in FK_NAMES:
-            self.exec_sql(f"ALTER TABLE taxonomy_worms DROP CONSTRAINT {fk}")
+        self.disable_foreign_keys()
         not_deleted = self.delete_unused_taxa(ids_to_suppress)
-        for sql in (FOREIGN_KEY_1, FOREIGN_KEY_2):
-            self.exec_sql(sql)
+        self.enable_foreign_keys()
 
         self.unmark_cancelled_and_deleted(not_deleted) # was marked cancelled but could not be deleted
 
@@ -656,6 +650,17 @@ class WormsSynchronisation2(object):
         # os.system(deltable)
         # copytable = "pg_dump -t taxonomy_worms -p port -h host -U user dbone | psql -U user2 -h host2 -p port2 dbtwo"
         # os.system(copytable)
+
+    def enable_foreign_keys(self):
+        for sql in (FOREIGN_KEY_1, FOREIGN_KEY_2):
+                self.exec_sql(sql)
+    def disable_foreign_keys(self):
+        for fk in FK_NAMES:
+                self.exec_sql(f"ALTER TABLE taxonomy_worms DROP CONSTRAINT {fk}")
+    def enable_name_unicity(self):
+        self.exec_sql(NAME_UNICITY)
+    def disable_name_unicity(self):
+        self.exec_sql(f"DROP INDEX is_taxo_worms_parent_name")
 
     def log_query(
         self,
@@ -862,7 +867,7 @@ class WormsSynchronisation2(object):
                 f"VALUES(%(id)s, %(name)s,%(parent_id)s,%(dt)s,%(dt)s {plusvalues}); "
             )
             params["name"] = row.name_ecotaxa
-        tree.store_child(
+        tree.store_node(
             params["parent_id"],
             params["name"],
             params["id"],
@@ -954,9 +959,9 @@ class WormsSynchronisation2(object):
             # print("Deleted ", len(safe_ids), " taxons")
             safe_ids_deleted.update(safe_ids)
 
-        print("To delete: ", len(to_del_from_csv), " safe: ", len(safe_ids_deleted))
+        # print("To delete: ", len(to_del_from_csv), " safe: ", len(safe_ids_deleted))
         not_deleted = set(to_del_from_csv).difference(safe_ids_deleted)
-        print("Not deleted: ", not_deleted)
+        # print("Not deleted: ", not_deleted)
         return not_deleted
 
     def clone_taxo_table(self) -> None:
