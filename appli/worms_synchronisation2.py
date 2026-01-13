@@ -149,6 +149,15 @@ class MiniTree:
             parent_id = self.parents[parent_id]
         return ret
 
+    def delete(self, cat_id: int):
+        if cat_id in self.children:
+            # Assume deletions can leave an invalid tree
+            # for a_child in self.children[cat_id]:
+            #     self.delete(a_child)
+            del self.children[cat_id]
+        del self.names[cat_id]
+        del self.parents[cat_id]
+
 
 FK_NAMES = ("taxonomy_worms_rename_to_fkey", "taxonomy_worms_parent_id_fkey")
 FOREIGN_KEY_2 = """ALTER TABLE public.taxonomy_worms
@@ -662,6 +671,70 @@ class WormsSynchronisation2(object):
     def disable_name_unicity(self):
         self.exec_sql(f"DROP INDEX is_taxo_worms_parent_name")
 
+    def do_worms_synchronisation_verbatim(self):
+
+        self.clone_taxo_table()
+        self.disable_foreign_keys()
+        self.disable_name_unicity()
+
+        tree = MiniTree(self.serverdb)
+        actions = self.read_and_check_csv(tree)
+
+        for row in actions:
+            try:
+                if row.action in (CHANGER_TYPE_EN_MORPHO,):
+                    qry, params = self.change_to_morpho(row)
+                elif row.action == DEPRECIER:
+                    qry, params = self.deprecate(row)
+                    self.exec_sql(qry, params)
+                    row = row._replace(aphia_id=None)
+                    qry, params = self.change_parent(row, tree)
+                elif row.action == A_SUPPRIMER:
+                    qry, params = self.suppress(row, tree)
+                elif row.action == AJOUTER_APHIA_ID:
+                    qry, params = self.add_aphia_id(row, tree)
+                elif row.action == CHANGER_LE_PARENT:
+                    qry, params = self.change_parent(row, tree)
+                elif row.action == RIEN_FAIRE:
+                    if row.aphia_id is None:
+                        if row.name_wrm != NA:
+                            # Small data hack, need a rename using WoRMS name even if not a WoRMS-ification
+                            qry, params = self.change_name(row, tree)
+                        else:
+                            continue  # Nothing, for real
+                    else:
+                        qry, params = self.add_aphia_id(row, tree)
+                elif row.action == CREER_NOUVELLE_CATEGORIE:
+                    qry, params = self.create_row(row, tree)
+                elif row.action == CHANGER_TYPE_EN_PHYLO:
+                    # Is now a composite: change to phylo + make aphia + change parent
+                    assert tree.get_parent(row.ecotaxa_id) != row.new_id_ecotaxa
+                    qry, params = self.change_parent(row, tree)
+                    self.exec_sql(qry, params)
+                    qry, params = self.add_aphia_id(row, tree)
+                    self.exec_sql(qry, params)
+                    qry, params = self.change_to_phylo(row)
+                else:
+                    assert False, row.action
+                self.exec_sql(qry, params)
+            except Exception as e:
+                print(row, e)
+        res = self.get_all("""select id, parent_id from taxonomy_worms
+  where parent_id not in (select id from taxonomy_worms)""")
+        for num, row in enumerate(res):
+            print(f"wrong parent {num}:{row}")
+        res = self.get_all("""select array_agg(id), parent_id, name from taxonomy_worms
+group by parent_id, name
+having count(1) > 1
+order by parent_id""")
+        for num, row in enumerate(res):
+            print(f"dup names {num}: {row}")
+        self.enable_foreign_keys()
+        self.enable_name_unicity()
+        self.compute_display_names()
+        self.serverdb.commit()
+
+
     def log_query(
         self,
         fd: IO,
@@ -842,6 +915,18 @@ class WormsSynchronisation2(object):
             "WHERE id=%(id)s;"
         )
         tree.change_parent(params["id"], params["new_parent_id_ecotaxa"])
+        return qry, params
+
+    @staticmethod
+    def suppress(row: CsvRow, tree: MiniTree) -> Tuple[str, ParamDictT]:
+        params: ParamDictT = {
+            "id": row.ecotaxa_id,
+        }
+        qry = (
+            f"DELETE /*CPR{row.i}*/ FROM taxonomy_worms "
+            "WHERE id=%(id)s;"
+        )
+        tree.delete(params["id"])
         return qry, params
 
     @staticmethod
