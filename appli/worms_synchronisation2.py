@@ -7,7 +7,7 @@ import psycopg2.extras
 
 from appli import app, db, ntcv
 
-INPUT_CSV = "static/tableau_ecotaxa_worms_avec_900tax_noeud_dep.csv"
+INPUT_CSV = "static/tableau_ecotaxa_worms_maj_1401.csv"
 
 START_OF_WORMS = 100000
 
@@ -1292,7 +1292,7 @@ class WormsSynchronisation2(object):
                             print(
                                 f"XLS not present line {line}",
                                 ecotaxa_id,
-                                name_ecotaxa,
+                                name_ecotaxa, db_name
                             )
                     else:
                         print("Not found taxon ID", ecotaxa_id, name_ecotaxa)
@@ -1309,14 +1309,7 @@ class WormsSynchronisation2(object):
                 ):
                     pass  # OK, all of them or none of them
                 else:
-                    if aphia_id == NA and name_wrm != NA and rank == NA:
-                        # Special case for Morpho renaming
-                        if taxotype != "M":
-                            print("ERR: ", action, taxotype, aphia_id, name_wrm, rank)
-                            # action = IGNORER
-                        # assert action == RIEN_FAIRE
-                        # assert details == RIEN_MORPHO_PARENT_P_NON_DEPRECIE
-                    else:
+                    if aphia_id != NA and (name_wrm == NA or rank == NA ):
                         print(
                             f"XLS worms inconsistent line {line}",
                             action,
