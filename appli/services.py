@@ -100,11 +100,13 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
     if len(name)<3:
         return "Name too short 3 characters min."
     if parent:
-        parent = database.GetAll("select id, aphia_id from taxonomy_worms where id=%s",[parent])
+        parent = database.GetAll("select id, aphia_id, taxostatus from taxonomy_worms where id=%s",[parent])
         if len(parent)!=1:
             return "invalid parent, doesn't exists in database"
         if parent[0]["aphia_id"] is not None:
             return "cannot create a WoRMS child using this form"
+        if parent[0]["taxostatus"] == 'D':
+            return "cannot create in a deprecated category"
     if taxotype == 'P' : # Phylo
         # if not re.match(r"^[A-Z][a-z+\-']{2,} ?[a-z+\-']*$", name):
         if not re.match(r"^[A-Z][a-z+\-']{2,}( [a-z+\-']+)*$", name):
