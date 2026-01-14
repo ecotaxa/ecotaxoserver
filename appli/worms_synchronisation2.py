@@ -7,6 +7,13 @@ import psycopg2.extras
 
 from appli import app, db, ntcv
 
+INPUT_CSV = "static/tableau_ecotaxa_worms_avec_900tax_noeud_dep.csv"
+
+START_OF_WORMS = 100000
+
+NA = "NA"
+
+
 WORMS_URL = "https://www.marinespecies.org/aphia.php?p=taxdetails&id="
 AJOUTER_APHIA_ID = "Ajouter aphia_id"  # Once in CSV, for living->Biota
 CHANGER_TYPE_EN_MORPHO = (
@@ -24,6 +31,9 @@ MORPHO_PARENT_DEPRECIE = "Morpho : parent deprecie"
 CREER_NOUVELLE_CATEGORIE = "Creer nouvelle categorie"
 RIEN_MORPHO_PARENT_P_NON_DEPRECIE = "Rien : Morpho, parent P non deprecie"
 
+ENSURE_TYPE = "align type"
+ALIGN_NAME = "align name"
+
 ParamDictT = Dict[str, Union[int, str, datetime]]
 
 DELETE_MARK = "'⊖'"
@@ -34,6 +44,7 @@ MARK_CANCELLED_SQL = (
 )
 # DEPRECATED_MARK = '→'
 DEPRECATED_MARK = "' '"
+# DEPRECATED_MARK = "'|'"
 MARK_DEPRECATED_SQL = (
     f"update taxonomy_worms set name = {DEPRECATED_MARK}||name where id=%(id)s"
 )
@@ -255,12 +266,6 @@ WORMS_TAXO_DDL = [
     """ANALYZE public.taxonomy_worms;""",
 ]
 
-INPUT_CSV = "static/tableau_ecotaxa_worms_after_correct_JO.csv"
-
-START_OF_WORMS = 100000
-
-NA = "NA"
-
 
 class CsvRow(NamedTuple):
     i: int
@@ -318,7 +323,7 @@ class WormsSynchronisation2(object):
         all_actions = set([action for action, detail in self.POSSIBLE_ACTIONS])
         log_filenames = {
             action: "static/db_update/" + action.replace(" ", "_") + ".sql"
-            for action in all_actions
+            for action in all_actions.union({ALIGN_NAME, ENSURE_TYPE})
         }
         action_logs = {
             action: open(filename, "w") for action, filename in log_filenames.items()
@@ -337,6 +342,22 @@ class WormsSynchronisation2(object):
         mapped_ids: Dict[int, int] = (
             {}
         )  # key=asked, from CSV, value=served, already existing
+
+        # Implicit renames/type changes
+        added_actions = []
+        for row in actions:
+            # if row.i == 2036:
+            #     assert False
+            #     pass
+            if (
+                row.name_ecotaxa != NA
+                and row.name_wrm != NA
+                and row.name_ecotaxa != row.name_wrm
+                and row.action != DEPRECIER
+            ):
+                added_actions.append(row._replace(action=ALIGN_NAME, name_ecotaxa=row.name_wrm))
+            added_actions.append(row._replace(action=ENSURE_TYPE))
+        actions.extend(added_actions)
 
         # Care for creations first
         creations = [
@@ -357,14 +378,20 @@ class WormsSynchronisation2(object):
                     # print(f"Redir line {row.i}", row.ecotaxa_id, " -> ", existing_id)
                     row2 = row._replace(ecotaxa_id=existing_id)
                     qry, params = self.add_aphia_id(row2, tree)
-                    mapped_ids[row.ecotaxa_id] = existing_id
                     if existing_id in ids_to_suppress:
                         ids_to_suppress.remove(existing_id)
+                        mapped_ids[row.ecotaxa_id] = existing_id
+                        turn_into_add = True
                     elif existing_id in ids_to_deprecate:
                         deprecate_means_nothing.add(existing_id)
+                        mapped_ids[row.ecotaxa_id] = existing_id
+                        turn_into_add = True
                     else:
+                        self.exec_sql(MARK_CANCELLED_SQL, {"id": existing_id})
+                        self.log_query(action_logs[row.action], qry, params)
+                        turn_into_add = False
+                        # assert False, row
                         assert row.ecotaxa_id >= START_OF_WORMS, (existing_id, row)
-                    turn_into_add = True
             if not turn_into_add:
                 qry, params = self.create_row(row, tree)
             self.exec_sql(qry, params)
@@ -402,7 +429,8 @@ class WormsSynchronisation2(object):
                         self.exec_sql(MARK_CANCELLED_SQL, {"id": existing_id})
                         self.log_query(action_logs[row.action], qry, params)
                     else:
-                        assert False, (existing_id, row)
+                        print("Unsolvable conflict with", existing_id, "in row", row)
+                        # assert False, (existing_id, row)
                 qry, params = self.change_parent(row, tree)
             self.exec_sql(qry, params)
             self.log_query(action_logs[row.action], qry, params)
@@ -450,73 +478,6 @@ class WormsSynchronisation2(object):
                 RIEN_FAIRE,
             ):
                 continue
-
-                # if row.name_ecotaxa != row.name_wrm and row.name_wrm != NA:
-                #     newname = row.name_wrm
-                # elif row.name_ecotaxa != NA:
-                ##    No new name
-                # newname = row.name_ecotaxa
-                # else:
-                #     assert (
-                #         False
-                #     ), (
-                #         row.i
-                #     )  # Not reachable with current CSV, some double NAs are in "A supprimer"
-                if row.action == CREER_NOUVELLE_CATEGORIE:
-                    newname = NA + str(row.ecotaxa_id)
-                    qry = "INSERT INTO taxonomy_worms(id, name,parent_id,rank,creation_datetime,lastupdate_datetime) VALUES(%s, %s, %s, %s, %s, %s);"
-                    params = (
-                        row.ecotaxa_id,
-                        newname,
-                        row.new_parent_id_ecotaxa,
-                        rank,
-                        dt,
-                        dt,
-                    )
-                    self.exec_sql(qry)
-                else:
-                    errorfile.write(" no name - " + ", ".join(map(str, row)) + "\n")
-                continue
-                # assert newname != NA
-                # if (
-                #     row.action == RIEN_FAIRE and int(row.ecotaxa_id) >= START_OF_WORMS
-                # ) or row.action == "Creer nouvelle categorie && deprecier":
-                #     assert False, row.i  # No such condition in CSV
-                continue
-                if row.action != CREER_NOUVELLE_CATEGORIE:
-                    row = row._replace(action=CREER_NOUVELLE_CATEGORIE)
-
-                params = {
-                    "ecotaxa_id": row.ecotaxa_id,
-                    "name": newname,
-                    "new_parent_id_ecotaxa": row.new_parent_id_ecotaxa,
-                    "dt": datetime.now(timezone.utc),
-                }
-
-                if row.action == "Creer nouvelle categorie && deprecier":
-                    if row.new_id_ecotaxa is not None:
-                        pluskeys = ", rename_to, taxostatus"
-                        plusvalues = ", %(new_id_ecotaxa)s, 'D'"
-                        params["new_id_ecotaxa"] = row.new_id_ecotaxa
-                    else:
-                        pluskeys = ", taxostatus"
-                        plusvalues = ", 'D'"
-                else:
-                    pluskeys = ""
-                    plusvalues = ""
-
-                if row.aphia_id is not None:
-                    qry = (
-                        f"INSERT /*WCR{row.i}*/ INTO taxonomy_worms(id,aphia_id,name,parent_id,rank,creation_datetime,lastupdate_datetime {pluskeys}) "
-                        f"VALUES(%(ecotaxa_id)s,%(aphia_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(rank)s,%(dt)s,%(dt)s  {plusvalues}); "
-                    )
-                    params["aphia_id"] = row.aphia_id
-                    params["rank"] = row.rank
-                else:  # Non-WoRMS creation
-                    qry = (
-                        f"INSERT /*NWC{row.i}*/ INTO taxonomy_worms(id,name,parent_id,creation_datetime,lastupdate_datetime {pluskeys}) "
-                        f"VALUES(%(ecotaxa_id)s, %(name)s,%(new_parent_id_ecotaxa)s,%(dt)s,%(dt)s {plusvalues}); "
-                    )
             elif row.action == DEPRECIER and row.new_id_ecotaxa is None:
                 if row.ecotaxa_id in deprecate_means_nothing:
                     deprecate_means_nothing.remove(row.ecotaxa_id)
@@ -535,7 +496,11 @@ class WormsSynchronisation2(object):
                     if row.aphia_id is not None:
                         qry, params = self.add_aphia_id(row, tree)
                 else:
-                    parent_id = tree.get_parent(row.ecotaxa_id)
+                    try:
+                        parent_id = tree.get_parent(row.ecotaxa_id)
+                    except KeyError:
+                        print("ERR: Unknown id", row.ecotaxa_id, "row:", row)
+                        continue
                     valid_parent, invalid_parent = tree.deepest_parent_not_in(
                         row.ecotaxa_id, ids_to_suppress
                     )
@@ -553,7 +518,7 @@ class WormsSynchronisation2(object):
                         )
                         if target_invalid_parent is not None:
                             print(
-                                "E:Invalid deprecate target",
+                                "ERR: Invalid deprecate target",
                                 row,
                                 "lineage KO at",
                                 target_invalid_parent,
@@ -578,6 +543,10 @@ class WormsSynchronisation2(object):
                 qry, params = self.change_to_phylo(row)
             elif row.action == AJOUTER_APHIA_ID:
                 qry, params = self.add_aphia_id(row, tree)
+            elif row.action == ALIGN_NAME:
+                qry, params = self.align_name(row, tree)
+            elif row.action == ENSURE_TYPE:
+                qry, params = self.ensure_type(row)
             elif (
                 row.action
                 == "Changer le parent + Pas de match avec Worms mais rattache plus haut"
@@ -617,6 +586,7 @@ class WormsSynchronisation2(object):
         )  # was marked cancelled but could not be deleted
 
         self.mark_deleted_as_deprecated(not_deleted)
+        self.statuses_n_or_d()
 
         self.compute_display_names()
         # self.add_deprecation_display_name()
@@ -855,6 +825,33 @@ class WormsSynchronisation2(object):
         return qry, params
 
     @staticmethod
+    def ensure_type(row: CsvRow) -> Tuple[str, ParamDictT]:
+        qry = (
+            f"UPDATE /*ALT{row.i}*/ taxonomy_worms SET taxotype=%(type)s,lastupdate_datetime=%(dt)s "
+            "WHERE id=%(ecotaxa_id)s AND taxotype!=%(type)s;"
+        )
+        params = {
+            "ecotaxa_id": row.ecotaxa_id,
+            "type": row.taxotype,
+            "dt": datetime.now(timezone.utc),
+        }
+        return qry, params
+
+    @staticmethod
+    def align_name(row: CsvRow, tree: MiniTree) -> Tuple[str, ParamDictT]:
+        qry = (
+            f"UPDATE /*ALN{row.i}*/ taxonomy_worms SET name=%(name)s,lastupdate_datetime=%(dt)s "
+            "WHERE id=%(ecotaxa_id)s;"
+        )
+        params = {
+            "ecotaxa_id": row.ecotaxa_id,
+            "name": row.name_ecotaxa,
+            "dt": datetime.now(timezone.utc),
+        }
+        tree.set_name(params["ecotaxa_id"], params["name"])
+        return qry, params
+
+    @staticmethod
     def add_aphia_id(row: CsvRow, tree: MiniTree) -> Tuple[str, ParamDictT]:
         assert row.name_wrm != NA, row.i
         qry = (
@@ -891,8 +888,9 @@ class WormsSynchronisation2(object):
 
     @staticmethod
     def change_parent(row: CsvRow, tree: MiniTree) -> Tuple[str, ParamDictT]:
+        assert row.new_parent_id_ecotaxa != row.ecotaxa_id, row # No loop
         if not tree.exists(row.new_parent_id_ecotaxa):
-            print(f"Invalid parent_id {row.new_parent_id_ecotaxa} row {row.i}")
+            print(f"ERR: Invalid parent_id {row.new_parent_id_ecotaxa} {row}")
             return "", None
         # Details are for sanity check
         if row.details == CHANGER_LE_PARENT:
@@ -1013,6 +1011,14 @@ class WormsSynchronisation2(object):
         for i in range(0, len(to_uncancel_from_csv), chunk):
             params = (datetime.now(timezone.utc), to_uncancel_from_csv[i : i + chunk])
             self.exec_sql(qry, params)
+
+    def statuses_n_or_d(self) -> None:
+        qry = (
+            f"UPDATE taxonomy_worms "
+            f"SET taxostatus = 'A' "
+            f"WHERE taxostatus = 'N' "
+        )
+        self.exec_sql(qry, None)
 
     def delete_unused_taxa(self, ids_to_delete: Set[int]) -> Set[int]:
         to_del_from_csv = list(ids_to_delete)
@@ -1182,6 +1188,7 @@ class WormsSynchronisation2(object):
         (CHANGER_LE_PARENT, "Rien"),
         (CHANGER_LE_PARENT, CHANGER_LE_PARENT),
         (CHANGER_LE_PARENT, MORPHO_PARENT_DEPRECIE),
+        (CHANGER_LE_PARENT, "Morpho : parent déprécié"),
         (CHANGER_LE_PARENT, PAS_MATCH_WORMS_BRANCHE_HAUT),
         (CHANGER_LE_PARENT, BRANCHER_A_NOUVEL_ECOTAXA_ID),
         (RIEN_FAIRE, "NA"),
@@ -1196,11 +1203,13 @@ class WormsSynchronisation2(object):
         (RIEN_FAIRE, "Rien : parent direct morpho"),
         (DEPRECIER, "NA"),
         (DEPRECIER, DEPRECIER),
+        (DEPRECIER, "Rien"),
         (DEPRECIER, "deprecate to new id"),
         (DEPRECIER, "temporary associate to Biota"),
         (DEPRECIER, "deprecate to morpho"),
         (DEPRECIER, "Changer en Phylo"),
         (CHANGER_TYPE_EN_MORPHO, "Changer en Morpho"),
+        (CHANGER_TYPE_EN_MORPHO, "NA"),
         (CHANGER_TYPE_EN_PHYLO, "Changer en Phylo"),
         (AJOUTER_APHIA_ID, "NA"),
         (CREER_NOUVELLE_CATEGORIE, "NA"),
@@ -1292,6 +1301,9 @@ class WormsSynchronisation2(object):
                     cleaned_row["name_wrm"],
                     cleaned_row["rank"],
                 )
+                if aphia_id == NA:
+                    # name_wrm = NA, sometimes used to carry an alternative name
+                    rank = NA
                 if (aphia_id, name_wrm, rank) == (NA, NA, NA) or (
                     aphia_id != NA and name_wrm != NA and rank != NA
                 ):
@@ -1299,22 +1311,22 @@ class WormsSynchronisation2(object):
                 else:
                     if aphia_id == NA and name_wrm != NA and rank == NA:
                         # Special case for Morpho renaming
-                        assert taxotype == "M"
-                        assert action == RIEN_FAIRE
+                        if taxotype != "M":
+                            print("ERR: ", action, taxotype, aphia_id, name_wrm, rank)
+                            # action = IGNORER
+                        # assert action == RIEN_FAIRE
                         # assert details == RIEN_MORPHO_PARENT_P_NON_DEPRECIE
                     else:
                         print(
                             f"XLS worms inconsistent line {line}",
                             action,
+                            name_ecotaxa,
                             aphia_id,
                             name_wrm,
                             rank,
                         )
-                        if action == CREER_NOUVELLE_CATEGORIE and name_wrm == NA:
-                            action = IGNORER
-                        if aphia_id == NA:
-                            name_wrm = NA
-                            rank = NA
+                        # if action == CREER_NOUVELLE_CATEGORIE and name_wrm == NA:
+                        #     action = IGNORER
                 aphia_id = int(aphia_id) if aphia_id != NA else None
                 rank = rank if rank != NA else None
                 if rank is not None:

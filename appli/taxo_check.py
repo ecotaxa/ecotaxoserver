@@ -171,6 +171,8 @@ order by txc.id""", "bad dead branch start"),
  where taxostatus = 'D'
    and exists(select 1 from ecotaxainststat where id_instance in (1,8) and id_taxon=id )
   and rename_to is null""", "deprecated with objects but no replacement"),
+  ("""select * from taxonomy_worms
+where taxostatus not in ('A','D')""", "just 2 statuses"),
 ]
 
 
@@ -183,6 +185,9 @@ def check_rules(db):
         if res:
             for a_rec in res:
                 print(f"Rule: {text} KO", a_rec)
+            ids = [rec[0] for rec in res]
+            ids.sort()
+            print(f"Summary of {text}:",','.join([str(i) for i in ids]))
 
 
 if __name__ == "__main__":
