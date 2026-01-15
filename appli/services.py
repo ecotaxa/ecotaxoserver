@@ -103,8 +103,9 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
         parent = database.GetAll("select id, aphia_id, taxostatus from taxonomy_worms where id=%s",[parent])
         if len(parent)!=1:
             return "invalid parent, doesn't exists in database"
-        if parent[0]["aphia_id"] is not None:
-            return "cannot create a WoRMS child using this form"
+        # TODO: It's a bit more tricky
+        # if parent[0]["aphia_id"] is not None:
+        #     return "cannot create a WoRMS child using this form"
         if parent[0]["taxostatus"] == 'D':
             return "cannot create in a deprecated category"
     if taxotype == 'P' : # Phylo
@@ -296,13 +297,13 @@ def UpdateObjectFromForm(taxon):
     taxon.rename_to= gvp('rename_to') or None
 
 def create_worms_lineage(wrms_lineage:List[Dict[str,str]], creator:str)->List[int]:
-    dt = datetime.datetime.now(datetime.timezone.utc)
     impacted_ids=[]
     def add_lineage(lineage:List[Dict[str,str]], parent_id:int):
         wrms_taxon = lineage[0]
         search = Taxonomy.query.filter(
             Taxonomy.aphia_id==int(wrms_taxon["AphiaID"])).first()
         if search is None:
+            dt = datetime.datetime.now(datetime.timezone.utc)
             parent = add_taxonomy_from_worms(wrms_taxon,parent_id,dt,creator)
             parent_id = parent.id
             assert parent_id is not None
