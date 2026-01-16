@@ -1,81 +1,34 @@
-from flask import Blueprint, render_template, g, request,url_for,abort
+from datetime import datetime
+from typing import Dict,List, Any
+from flask import  g,abort,make_response
 from flask.json import jsonify
-from flask_login import current_user
-from appli import app,ObjectToStr,PrintInCharte,database,db,gvg,gvp,FormatSuccess,FormatError,ntcv
-from appli.database import ExecSQL,GetAll
-from flask_security.decorators import roles_accepted
+from appli import app,database,db,gvp,FormatSuccess,FormatError,ntcv
+from appli.WoRMS import WoRMSFinder
+from appli.database import ExecSQL, Taxonomy
 import json,re,time,psycopg2.extras,random,datetime
-# from typing import List  # Pas supporté python 3.4 serveur demo
-
-# def ComputeDisplayName(TaxoList:List[int]):
-def ComputeDisplayName(TaxoList):
+WORMS_STATUS_ACCEPTED ='accepted'
+DEFAULT_WORMS_STATUS='A'
+DEFAULT_WORMS_TYPE='P'
+WORMS_URL = "https://www.marinespecies.org/aphia.php?p=taxdetails&id="
+def ComputeDisplayName(TaxoList:list):
     """
     Compute display_name column in database, for the list of provided id
     :param TaxoList: 
     :return: None 
     """
-#     sql="""with duplicate as (select name from taxonomy GROUP BY name HAVING count(*)>1),
-#               nt as (select t.id,case when t.name like '%% %%' or p.id is null then t.name
-#                     when t.taxotype='M' and P.taxotype='M' then concat(p2.name||'>',p.name||'>',t.name)
-#                     when t.name in (select name from duplicate) then concat(p.name||'>',t.name)
-#                     else t.name end
-#                     ||case when t.taxostatus='D' then ' (Deprecated)' else '' end
-#                      newname
-#   from taxonomy t
-#   left JOIN taxonomy p on t.parent_id=p.id
-#   left JOIN taxonomy p2 on p.parent_id=p2.id
-#   where (t.id = any ( %(taxo)s ) or p.id = any ( %(taxo)s ) or p2.id = any ( %(taxo)s ))
-# )
-# update public.taxonomy t set display_name=newname,lastupdate_datetime=to_timestamp(%(ts)s,'YYYY-MM-DD HH24:MI:SS')
-# from nt
-# where nt.id=t.id and display_name IS DISTINCT FROM newname """
-#     # Pour chaque nom on cherche à determiner à quelle hauteur il n'y a plus de doublons
-#     # quand plus de 2 doublons ça peut conduire à une inflation car on va prendre le plus long pour tous
-#     # alors que par forcement necessaire ex : A<B , A<C<D , A<C<E  A<B sera A<B<X inutilement rallongé
-#     sql="""
-#     with duplicate as (
-#     select t.name, count(distinct t.id) cid,
-#       count(distinct concat(t.name,'<'||p.name)) c2,
-#       count(distinct concat(t.name,'<'||p.name,'<'||p2.name)) c3,
-#       count(distinct concat(t.name,'<'||p.name,'<'||p2.name,'<'||p3.name)) c4
-#       from taxonomy t
-#       left JOIN taxonomy p on t.parent_id=p.id
-#       left JOIN taxonomy p2 on p.parent_id=p2.id
-#       left JOIN taxonomy p3 on p2.parent_id=p3.id
-#       group by t.name
-#     having count(distinct t.id)>1 )
-#         ,nt as (select t.id,case when d.name is null then t.name
-#                                  when cid=c2 then concat(t.name,'<'||p.name)
-#                                  when cid=c3 then concat(t.name,'<'||p.name,'<'||p2.name)
-#                                  else  concat(t.name,'<'||p.name,'<'||p2.name,'<'||p3.name)
-#                              end newname
-#       from taxonomy t
-#       left JOIN duplicate d on t.name=d.name
-#       left JOIN taxonomy p on t.parent_id=p.id
-#       left JOIN taxonomy p2 on p.parent_id=p2.id
-#       left JOIN taxonomy p3 on p2.parent_id=p3.id
-#       where (t.id = any ( %(taxo)s ) or p.id = any ( %(taxo)s ) or p2.id = any(%(taxo)s) or p3.id = any(%(taxo)s)  )
-#     )
-#     update public.taxonomy t set display_name=newname
-#     from nt
-#       where nt.id=t.id
-#
-#     """
-#     database.ExecSQL(sql,{'taxo':TaxoList,'ts':datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')})
-    # on recalcule tous les doublons + ceux qui n'ont pas de noms + ceux ayant le même nom que ceux demandés dans leur lineage 3.
-    sql = """with duplicate as (select lower(name) as name from taxonomy GROUP BY lower(name) HAVING count(*)>1)
+    sql: str = """with duplicate as (select lower(name) as name from taxonomy_worms GROUP BY lower(name) HAVING count(*)>1)
           select t.id,t.name tname,p.name pname,p2.name p2name,p3.name p3name,t.display_name,t.taxostatus
-          from taxonomy t
+          from taxonomy_worms t
           left JOIN duplicate d on lower(t.name)=d.name
-          left JOIN taxonomy p on t.parent_id=p.id
-          left JOIN taxonomy p2 on p.parent_id=p2.id
-          left JOIN taxonomy p3 on p2.parent_id=p3.id
+          left JOIN taxonomy_worms p on t.parent_id=p.id
+          left JOIN taxonomy_worms p2 on p.parent_id=p2.id
+          left JOIN taxonomy_worms p3 on p2.parent_id=p3.id
           where d.name is not null or t.display_name is null 
           or lower(t.name) in (select lower(st.name) 
-                                  from taxonomy st
-                                  left JOIN taxonomy sp on st.parent_id=sp.id
-                                  left JOIN taxonomy sp2 on sp.parent_id=sp2.id
-                                  left JOIN taxonomy sp3 on sp2.parent_id=sp3.id
+                                  from taxonomy_worms st
+                                  left JOIN taxonomy_worms sp on st.parent_id=sp.id
+                                  left JOIN taxonomy_worms sp2 on sp.parent_id=sp2.id
+                                  left JOIN taxonomy_worms sp3 on sp2.parent_id=sp3.id
                                 where (st.id=any(%(taxo)s) or sp.id=any(%(taxo)s) or sp2.id=any(%(taxo)s) or sp3.id=any(%(taxo)s)  )  
                 )
           """
@@ -115,8 +68,6 @@ def ComputeDisplayName(TaxoList):
                 else:
                     cle += '<' + ntcv(D['p3name'])
                     Duplicates[i]['newname'] = cle
-        if D['taxostatus']=='D':
-            Duplicates[i]['newname'] += " (Deprecated)"
 
     app.logger.debug("Compute time %s ", (datetime.datetime.now() - starttime).total_seconds())
     starttime = datetime.datetime.now()
@@ -127,9 +78,9 @@ def ComputeDisplayName(TaxoList):
     if len(UpdateParam) > 0:
         cur = g.db.cursor()
         psycopg2.extras.execute_values(cur
-                                       , """UPDATE taxonomy SET display_name = data.pdisplay_name,lastupdate_datetime=to_timestamp('{}','YYYY-MM-DD HH24:MI:SS') 
+                                       , """UPDATE taxonomy_worms SET display_name = data.pdisplay_name,lastupdate_datetime=to_timestamp('{}','YYYY-MM-DD HH24:MI:SS') 
                FROM (VALUES %s) AS data (pid, pdisplay_name)
-               WHERE id = data.pid""".format(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
+               WHERE id = data.pid""".format(datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
                                        , UpdateParam)
         cur.connection.commit()
         cur.close()
@@ -149,13 +100,23 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
     if len(name)<3:
         return "Name too short 3 characters min."
     if parent:
-        if len(database.GetAll("select id from taxonomy where id=%s",[parent]))!=1:
+        db_parent = database.GetAll("select id, aphia_id, taxostatus from taxonomy_worms where id=%s",[parent])
+        if len(db_parent)!=1:
             return "invalid parent, doesn't exists in database"
+        if db_parent[0]["aphia_id"] is not None:
+            aphia_id = db_parent[0]["aphia_id"]
+            # Cannot create a child of WoRMS here, it must be created the official WoRMS way.
+            children_records = WoRMSFinder.aphia_children_by_id(aphia_id)[0]
+            children_names = [rec["scientificname"].lower() for rec in children_records]
+            if name.strip().lower() in children_names:
+                return "this taxon is in WoRMS, use dedicated form"
+        if db_parent[0]["taxostatus"] == 'D':
+            return "cannot create in a deprecated category"
     if taxotype == 'P' : # Phylo
         # if not re.match(r"^[A-Z][a-z+\-']{2,} ?[a-z+\-']*$", name):
         if not re.match(r"^[A-Z][a-z+\-']{2,}( [a-z+\-']+)*$", name):
             return "Name must start with an Uppercase letter, then contain only lowercase letters, the symbols +, -, ' or a single space; minimum length is 3 characters."
-        sql="select count(*) from taxonomy where lower(name)=lower( (%s) ) "
+        sql="select count(*) from taxonomy_worms where lower(name)=lower( (%s) ) "
         if updatetarget and int(updatetarget)>0 :
             sql +=" and id!={}".format(int(updatetarget))
         Nbr=int(database.GetAll(sql,[name])[0][0])
@@ -166,7 +127,7 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
             return "Name must contain lowercase letters, digits, the symbols +, -, ', or a single space; minimum length is 3 characters."
         if not parent:
             return "You must specify a parent to check morpho type"
-        sql="select count(*) from taxonomy where lower(name)=lower( (%s) ) and parent_id={}".format(int(parent))
+        sql="select count(*) from taxonomy_worms where lower(name)=lower( (%s) ) and parent_id={}".format(int(parent))
         if updatetarget and int(updatetarget)>0 :
             sql +=" and id!={}".format(int(updatetarget))
         Nbr=int(database.GetAll(sql,[name])[0][0])
@@ -175,6 +136,76 @@ def checktaxon(taxotype:str,name:str,parent='',updatetarget=''):
     else:
         return "Invalid taxotype"
     return "ok"
+
+
+def get_lineage(res:List[Dict])->List[Dict]:
+    taxons:List[Dict]=[]
+    wormsfinder = WoRMSFinder()
+    def getlineage(r):
+        lineage = wormsfinder.aphia_classif_by_id(int(r["AphiaID"]))
+        if lineage['child'] is not None:
+            flipped = WoRMSFinder.reverse_lineage(lineage)
+        else:
+            flipped = {}
+        taxons.append(
+            dict({"aphia_id": r["AphiaID"], "name": r["scientificname"], "rank": r["rank"], "status": r["status"],
+                  "lineage": flipped}))
+    for r in res:
+        if (r["valid_AphiaID"] != r["AphiaID"]):
+        #if r["status"] != WORMS_STATUS_ACCEPTED or (r["valid_AphiaID"] != r["AphiaID"]):
+            continue
+        getlineage(r)
+    return taxons
+
+
+@app.route('/addwormstaxon/',methods=['POST'])
+def routeaddwormstaxon():
+    CheckInstanceSecurity()
+    aphia_id = gvp("aphia_id")
+    creator = gvp("creator_email")
+    if aphia_id is None or creator is None:
+        return "Invalid parameters"
+    try:
+        aphia_id = int(aphia_id)
+    except ValueError:
+        return "Invalid parameters"
+    rsp = add_worms_taxon(aphia_id, creator)
+    return rsp
+
+def add_worms_taxon(aphia_id:int, creator:str) -> Any:
+    with TaxoOperationLocker():
+        app.logger.info('In Locker')
+        taxo_exist = Taxonomy.query.filter(Taxonomy.aphia_id == aphia_id).first()
+        if taxo_exist is not None:
+            err = {"error":"taxon with aphia_id %s already exist." % aphia_id}
+            response = make_response(json.dumps(err), 422)
+            return response
+        worms_finder = WoRMSFinder()
+        lineage = worms_finder.aphia_classif_by_id(aphia_id, flatten=True)
+        # Check both ends of lineage
+        assert lineage[0]["scientificname"] == "Biota"
+        to_create = lineage[-1]
+        assert to_create["AphiaID"] == aphia_id
+        parents = create_worms_lineage(lineage, creator)
+        ComputeDisplayName(parents)
+        msg = {"success":"taxon "+to_create["scientificname"]+" and lineage added"}
+        response = make_response(json.dumps(msg), 200)
+        return response
+
+
+@app.route('/wormstaxon/<name>',methods=['GET', 'POST'])
+def routewormstaxon(name):
+    # CheckInstanceSecurity()
+    wormsfinder=WoRMSFinder()
+    res=wormsfinder.aphia_records_by_name_sync(name)
+    taxons:List[Dict]=get_lineage(res)
+    aphiaids = [taxon["aphia_id"] for taxon in taxons]
+    rows = Taxonomy.query.filter(Taxonomy.aphia_id.in_(aphiaids)).all()
+    founds = {row.aphia_id:row.id for row in rows}
+    for taxon in taxons:
+        if taxon["aphia_id"] in founds.keys():
+            taxon.update({"id":founds[taxon["aphia_id"]]})
+    return json.dumps(taxons)
 
 @app.route('/checktaxon/',methods=['POST'])
 def routechecktaxon():
@@ -248,8 +279,9 @@ def CheckTaxonUpdateRight(Taxon):
 def UpdateObjectFromForm(taxon):
     taxon.parent_id= gvp('parent_id')
     taxon.name= gvp('name')
-    taxon.taxotype= gvp('taxotype')
-    taxon.id_source= gvp('id_source')
+    taxon.taxotype= gvp('taxotype') if gvp('taxotype') else None
+    taxon.aphia_id= gvp('aphia_id') if gvp('aphia_id') else None
+    taxon.rank = gvp('rank')
     taxon.source_url= gvp('source_url')
     taxon.source_desc= gvp('source_desc')
     taxon.creator_email= gvp('creator_email')
@@ -260,13 +292,54 @@ def UpdateObjectFromForm(taxon):
     elif taxon.id_instance != int(gvp('id_instance')):
         abort(jsonify(msg="Only instance author of a taxon can update it"))
     if taxon.id is None:
-        taxon.creation_datetime = datetime.datetime.utcnow()
+        taxon.creation_datetime = datetime.datetime.now(datetime.timezone.utc)
         taxon.id_instance = int(gvp('id_instance'))
-    taxon.lastupdate_datetime= datetime.datetime.utcnow()
+    taxon.lastupdate_datetime= datetime.datetime.now(datetime.timezone.utc)
     if gvp('rename_to')!='':
-        if len(database.GetAll("select id from taxonomy where id=%s",[int(gvp('rename_to'))]))!=1:
+        if len(database.GetAll("select id from taxonomy_worms where id=%s",[int(gvp('rename_to'))]))!=1:
             abort(jsonify(msg="invalid rename_to value"))
     taxon.rename_to= gvp('rename_to') or None
+
+def create_worms_lineage(wrms_lineage:List[Dict[str,str]], creator:str)->List[int]:
+    impacted_ids=[]
+    def add_lineage(lineage:List[Dict[str,str]], parent_id:int):
+        wrms_taxon = lineage[0]
+        search = Taxonomy.query.filter(
+            Taxonomy.aphia_id==int(wrms_taxon["AphiaID"])).first()
+        if search is None:
+            dt = datetime.datetime.now(datetime.timezone.utc)
+            parent = add_taxonomy_from_worms(wrms_taxon,parent_id,dt,creator)
+            parent_id = parent.id
+            assert parent_id is not None
+        else:
+            parent_id = search.id
+        impacted_ids.append(parent_id)
+        db.session.commit()
+        if len(lineage)>1:
+            add_lineage(lineage[1:], parent_id)
+
+    add_lineage(wrms_lineage, -1)
+    return impacted_ids
+
+def add_taxonomy_from_worms(wrms_taxon: dict, parent_id:int, dt: datetime.datetime, creator: str) -> Taxonomy :
+    added = Taxonomy()
+    db.session.add(added)
+    added.parent_id = parent_id
+    added.aphia_id = wrms_taxon["AphiaID"]
+    added.name = wrms_taxon["scientificname"]
+    added.rank = wrms_taxon["rank"]
+    added.creation_datetime = dt
+    added.source_url = WORMS_URL+str(added.aphia_id)
+    added.taxonstatus = DEFAULT_WORMS_STATUS
+    added.taxotype = DEFAULT_WORMS_TYPE
+    added.creator_email = creator
+    added.lastupdate_datetime = added.creation_datetime
+    try:
+        added.id_instance = int(gvp('id_instance'))
+    except:
+        added.id_instance = 0
+    db.session.commit()
+    return added
 
 @app.route('/settaxon/',methods=['POST'])
 def routesettaxon():
@@ -274,9 +347,10 @@ def routesettaxon():
         Update a taxon or create a new one if 'id' parameter is not supplied.
     """
     CheckInstanceSecurity()
-    taxotype=gvp('taxotype')
-    name=gvp('name')
-    parent= gvp('parent_id')
+    taxotype = gvp('taxotype')
+    name = gvp('name')
+    parent = gvp('parent_id')
+    aphia_id = gvp('aphia_id','')
     taxonid = gvp('id','')
 
     with TaxoOperationLocker():
@@ -285,38 +359,62 @@ def routesettaxon():
         if msg!='ok':
             return jsonify(msg=msg)
         if taxonid!='':
-            Taxon = database.Taxonomy.query.filter_by(id=int(taxonid)).first()
+            Taxon = Taxonomy.query.filter(id==int(taxonid))
             CheckTaxonUpdateRight(Taxon)
         else:
-            Taxon=database.Taxonomy()
+            Taxon=Taxonomy()
             db.session.add(Taxon)
         UpdateObjectFromForm(Taxon)
         db.session.commit()
-        ComputeDisplayName([Taxon.id])
+        taxonids=[Taxon.id]
+        if aphia_id!='' and (taxonid=='' or (Taxon.aphia_id!=int(aphia_id))):
+            wormsfinder=WoRMSFinder()
+            lineage = wormsfinder.aphia_classif_by_id(int(aphia_id))
+            if lineage['child'] is not None:
+                flipped=WoRMSFinder.reverse_lineage(lineage)
+                added=create_worms_lineage(Taxon,flipped)
+                taxonids.extend(added)
+            else:
+                taxonids=[]
+        ComputeDisplayName(taxonids)
         return jsonify(msg='ok',id=Taxon.id)
 
+# Return changes on taxa tree, since given date if provided, for given id if provided
 @app.route('/gettaxon/',methods=['POST'])
 def routegettaxon():
-    sql="""select t.id,t.parent_id,t.name,t.taxotype,t.display_name,t.id_source,t.source_url,t.source_desc
-          ,t.creator_email
-          ,to_char(t.creation_datetime,'YYYY-MM-DD HH24:MI:SS') creation_datetime
-          ,to_char(t.lastupdate_datetime,'YYYY-MM-DD HH24:MI:SS') lastupdate_datetime,t.id_instance,t.taxostatus,t.rename_to 
-          from taxonomy t where 1=1 """
+    sql="""select id,aphia_id,aphia_id as id_source,parent_id,rank,name,taxotype,display_name,source_url,source_desc
+          ,creator_email,creation_datetime,lastupdate_datetime,id_instance,taxostatus,rename_to 
+          from (
+            select t.id,t.aphia_id,t.parent_id,t.rank,t.name,t.taxotype,t.display_name,t.source_url,t.source_desc
+            ,t.creator_email
+            ,to_char(t.creation_datetime,'YYYY-MM-DD HH24:MI:SS') creation_datetime
+            ,to_char(t.lastupdate_datetime,'YYYY-MM-DD HH24:MI:SS') lastupdate_datetime
+            ,t.lastupdate_datetime as lastupdate_datetime_raw
+            ,t.id_instance,t.taxostatus,t.rename_to 
+            from taxonomy_worms t
+            UNION ALL
+            select g.id, g.aphia_id, g.parent_id, g.rank, g.name, g.taxotype, g.display_name, g.source_url, g.source_desc
+            , g.creator_email
+            , to_char(g.creation_datetime,'YYYY-MM-DD HH24:MI:SS') creation_datetime
+            , to_char(g.lastupdate_datetime,'YYYY-MM-DD HH24:MI:SS') lastupdate_datetime
+            , g.lastupdate_datetime as lastupdate_datetime_raw
+            , g.id_instance, 'X' as taxostatus, g.rename_to 
+            from gone_taxa g
+          ) t where 1=1 """
     sqlparam={}
     filtertype = gvp('filtertype')
     if filtertype=='id':
         sql+=" and id=%(id)s "
         sqlparam['id']=int(gvp('id'))
     elif filtertype=='since':
-        sql+=""" and lastupdate_datetime>=to_timestamp(%(startdate)s,'YYYY-MM-DD HH24:MI:SS') 
-                    
+        sql+=""" and lastupdate_datetime_raw>=to_timestamp(%(startdate)s,'YYYY-MM-DD HH24:MI:SS') 
                     """
         # and (taxostatus!='N' or id_instance=%(id_instance)s)     ==> Désactivé dans un premier temps
         sqlparam['startdate']=gvp('startdate')
         # sqlparam['id_instance']=gvp('id_instance')
     else:
         return jsonify(msg='filtertype required')
-    sql += " order by lastupdate_datetime "
+    sql += " order by lastupdate_datetime_raw "
     res=database.GetAll(sql,sqlparam,cursor_factory=psycopg2.extras.RealDictCursor)
     if len(res)==0 and filtertype=='id':
         return jsonify(msg='no data found')
@@ -338,7 +436,7 @@ def routesetstat():
                      ,[g.ecotaxa_version,id_instance])
     PurgeDeprecatedTaxon()
     return jsonify(msg='ok',msgversion=g.MsgVersion)
-
+@app.route('/wormstaxonset')
 def PurgeDeprecatedTaxon():
     # purge les stat sur des instances supprimées
     ExecSQL("delete from ecotaxainststat where id_instance not in (select id from ecotaxainst)")
@@ -346,7 +444,7 @@ def PurgeDeprecatedTaxon():
     # et qui n'ont pas d'enfants (d'ou le fait de l'executer 20 fois pour purger une branche entière)
     for i in range(20):
         rowcount=ExecSQL("""delete
-            from taxonomy t
+            from taxonomy_worms t
             where taxostatus='D'
             and lastupdate_datetime<(select min(laststatupdate_datetime) from ecotaxainst)
             and not exists (select 1 from ecotaxainststat s where s.id_taxon=t.id)
@@ -356,35 +454,35 @@ def PurgeDeprecatedTaxon():
             break
 
 def RefreshTaxoStat():
-    n=ExecSQL("UPDATE taxonomy SET  nbrobj=Null,nbrobjcum=null where nbrobj is NOT NULL or nbrobjcum is not null")
+    n=ExecSQL("UPDATE taxonomy_worms SET  nbrobj=Null,nbrobjcum=null where nbrobj is NOT NULL or nbrobjcum is not null")
     app.logger.info("RefreshTaxoStat cleaned %d taxo"%n)
 
     app.logger.info("Refresh projects_taxo_stat")
     # for r in GetAll('select projid from projects'):
     #     RecalcProjectTaxoStat(r['projid'])
 
-    n=ExecSQL("""UPDATE taxonomy
+    n=ExecSQL("""UPDATE taxonomy_worms
                 SET  nbrobj=q.nbr
                 from (select id_taxon classif_id, sum(nbr) nbr 
                       from ecotaxainststat pts
                        group by id_taxon)q
-                where taxonomy.id=q.classif_id""")
+                where taxonomy_worms.id=q.classif_id""")
     app.logger.info("RefreshTaxoStat updated %d 1st level taxo"%(n))
 
-    n=ExecSQL("""UPDATE taxonomy
+    n=ExecSQL("""UPDATE taxonomy_worms
                 SET  nbrobjcum=q.nbr
                 from (select parent_id,sum(nbrobj) nbr from taxonomy
                       where nbrobj is NOT NULL
                       group by parent_id ) q
-                where taxonomy.id=q.parent_id""")
+                where taxonomy_worms.id=q.parent_id""")
     app.logger.info("RefreshTaxoStat updated %d 2st level taxo"%(n))
     for i in range(50):
-        n=ExecSQL("""UPDATE taxonomy
+        n=ExecSQL("""UPDATE taxonomy_worms
                     SET  nbrobjcum=q.nbr
-                    from (select parent_id,sum(nbrobjcum+coalesce(nbrobj,0)) nbr from taxonomy
+                    from (select parent_id,sum(nbrobjcum+coalesce(nbrobj,0)) nbr from taxonomy_worms
                           where nbrobjcum is NOT NULL
                           group by parent_id  ) q
-                    where taxonomy.id=q.parent_id
+                    where taxonomy_worms.id=q.parent_id
                     and coalesce(taxonomy.nbrobjcum,0)<>q.nbr""")
         print("RefreshTaxoStat updated %d level %d taxo"%(n,i))
         if n==0:

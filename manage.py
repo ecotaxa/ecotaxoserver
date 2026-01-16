@@ -73,7 +73,7 @@ def ResetDBSequence(cur=None):
         print("Start Sequence Reset")
         if cur is None:
             cur=db.session
-        cur.execute("SELECT setval('seq_taxonomy', (SELECT max(id) FROM taxonomy), true)")
+        cur.execute("SELECT setval('seq_taxonomy_worms', (SELECT max(id) FROM taxonomy_worms), true)")
         cur.execute("SELECT setval('seq_users', (SELECT max(id) FROM users), true)")
         cur.execute("SELECT setval('roles_id_seq', (SELECT max(id) FROM roles), true)")
         print("Sequence Reset Done")

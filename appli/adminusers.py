@@ -69,12 +69,10 @@ class UsersView(ModelView):
 
 
 class TaxonomyView(ModelView):
-    column_list = ('id','parent_id', 'name','id_source')
-    column_filters = ('id','parent_id', 'name','id_source')
+    column_list = ('id','parent_id', 'name','aphia_id')
+    column_filters = ('id','parent_id', 'name','aphia_id')
     column_searchable_list = ('name',)
     page_size = 100
-    # form_columns = ('id','parent_id', 'name','id_source')
-    # form_overrides = dict(dataportal_descriptor  =TextAreaField )
     def __init__(self, session, **kwargs):
         super(TaxonomyView, self).__init__(database.Taxonomy, session, **kwargs)
     def is_accessible(self):

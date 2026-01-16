@@ -18,20 +18,22 @@ from flask_security.decorators import roles_accepted,login_required
 
 SQLTreeSelect="""concat(t14.name||'>',t13.name||'>',t12.name||'>',t11.name||'>',t10.name||'>',t9.name||'>',t8.name||'>',t7.name||'>',
      t6.name||'>',t5.name||'>',t4.name||'>',t3.name||'>',t2.name||'>',t1.name||'>',t.name) tree"""
-SQLTreeJoin="""left join taxonomy t1 on t.parent_id=t1.id
-      left join taxonomy t2 on t1.parent_id=t2.id
-      left join taxonomy t3 on t2.parent_id=t3.id
-      left join taxonomy t4 on t3.parent_id=t4.id
-      left join taxonomy t5 on t4.parent_id=t5.id
-      left join taxonomy t6 on t5.parent_id=t6.id
-      left join taxonomy t7 on t6.parent_id=t7.id
-      left join taxonomy t8 on t7.parent_id=t8.id
-      left join taxonomy t9 on t8.parent_id=t9.id
-      left join taxonomy t10 on t9.parent_id=t10.id
-      left join taxonomy t11 on t10.parent_id=t11.id
-      left join taxonomy t12 on t11.parent_id=t12.id
-      left join taxonomy t13 on t12.parent_id=t13.id
-      left join taxonomy t14 on t13.parent_id=t14.id"""
+SQLStatusSelect="""concat(t14.taxostatus,t13.taxostatus,t12.taxostatus,t11.taxostatus,t10.taxostatus,t9.taxostatus,t8.taxostatus,t7.taxostatus,
+     t6.taxostatus,t5.taxostatus,t4.taxostatus,t3.taxostatus,t2.taxostatus,t1.taxostatus,t.taxostatus) statuses"""
+SQLTreeJoin="""left join taxonomy_worms t1 on t.parent_id=t1.id
+      left join taxonomy_worms t2 on t1.parent_id=t2.id
+      left join taxonomy_worms t3 on t2.parent_id=t3.id
+      left join taxonomy_worms t4 on t3.parent_id=t4.id
+      left join taxonomy_worms t5 on t4.parent_id=t5.id
+      left join taxonomy_worms t6 on t5.parent_id=t6.id
+      left join taxonomy_worms t7 on t6.parent_id=t7.id
+      left join taxonomy_worms t8 on t7.parent_id=t8.id
+      left join taxonomy_worms t9 on t8.parent_id=t9.id
+      left join taxonomy_worms t10 on t9.parent_id=t10.id
+      left join taxonomy_worms t11 on t10.parent_id=t11.id
+      left join taxonomy_worms t12 on t11.parent_id=t12.id
+      left join taxonomy_worms t13 on t12.parent_id=t13.id
+      left join taxonomy_worms t14 on t13.parent_id=t14.id"""
 
 
 PackTreeTxtPattern= re.compile(r"^([^>]+>)(.*)((?:>.[^>]+){3})$")
@@ -44,31 +46,29 @@ def PackTreeTxt(txt):
 
 @app.route('/browsetaxo/')
 def browsetaxo():
-    lst=GetAll("""select t.id,t.parent_id,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email,t.id_source
-      ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,{}
-    from taxonomy t
+    lst=GetAll("""select t.id,t.aphia_id,t.parent_id,t.rank,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email
+      ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,{},{},t.rename_to
+    from taxonomy_worms t
     {}
     order by t.id
     LIMIT 200
-    """.format(SQLTreeSelect,SQLTreeJoin))
-    for lstitem in lst:
-        # lstitem['tree']=PackTreeTxt(lstitem['tree']) #evite les problèmes de safe
-        if lstitem['parent_id'] is None:
-            lstitem['parent_id']=""
+    """.format(SQLTreeSelect,SQLStatusSelect,SQLTreeJoin))
+    postprocess(lst)
 
-    nbrtaxon=GetAll("select count(*) from taxonomy")[0][0]
+    nbrtaxon=GetAll("select count(*) from taxonomy_worms")[0][0]
     g.AdminLists=GetAll("select email,name from users where email like '%@%' and active=TRUE order by 2")
     return render_template('browsetaxo.html',lst=lst,nbrtaxon=nbrtaxon,taxon_id=gvg('id'))
 
 
 @app.route('/browsetaxo/ajax',methods=['POST'])
 def browsetaxoajax():
-    sql="""select t.id,t.parent_id,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email,t.id_source
-      ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,{}
-    from taxonomy t 
+    sql="""select t.id,t.aphia_id,t.parent_id,t.rank,t.display_name as name,t.taxotype,t.taxostatus,t.creator_email
+      ,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi') creation_datetime,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi') lastupdate_datetime,
+      {},{}, t.rename_to
+    from taxonomy_worms t 
     {}
     where 1=1
-    """.format(SQLTreeSelect,SQLTreeJoin)
+    """.format(SQLTreeSelect,SQLStatusSelect,SQLTreeJoin)
     params={}
     sqlcrit=""
     start=0
@@ -82,34 +82,37 @@ def browsetaxoajax():
         sqlcrit += " and t.id = %(id)s"
         params['id']=int(gvp('columns[0][search][value]'))
     if gvp('columns[1][search][value]').isdigit():
-        if int(gvp('columns[1][search][value]'))==0:
+        sqlcrit += " and t.aphia_id = %(aphia_id)s"
+        params['aphia_id'] = int(gvp('columns[1][search][value]'))
+    if gvp('columns[2][search][value]').isdigit():
+        if int(gvp('columns[2][search][value]'))==0:
             sqlcrit += " and t.parent_id is null "
         else:
             sqlcrit += " and (t.parent_id = %(parent_id)s or t.id=%(parent_id)s ) " # or id pour faciliter la navigation
-            params['parent_id']=int(gvp('columns[1][search][value]'))
-    if gvp('columns[2][search][value]'):
-        sqlcrit += " and t.display_name ilike %(name)s"
-        params['name']='%'+gvp('columns[2][search][value]')+'%'
+            params['parent_id']=int(gvp('columns[2][search][value]'))
     if gvp('columns[3][search][value]'):
-        sqlcrit += " and t.taxotype = %(taxotype)s"
-        params['taxotype']=gvp('columns[3][search][value]')
+        sqlcrit += " and t.rank ilike %(rank)s"
+        params['rank']='%'+gvp('columns[3][search][value]')+'%'
     if gvp('columns[4][search][value]'):
-        sqlcrit += " and t.taxostatus = %(taxostatus)s"
-        params['taxostatus']=gvp('columns[4][search][value]')
+        sqlcrit += " and t.display_name ilike %(name)s"
+        params['name'] = '%' + gvp('columns[4][search][value]') + '%'
     if gvp('columns[5][search][value]'):
-        sqlcrit += " and t.creator_email ilike %(creator_email)s"
-        params['creator_email']='%'+gvp('columns[5][search][value]')+'%'
+        sqlcrit += " and t.taxotype = %(taxotype)s"
+        params['taxotype']=gvp('columns[5][search][value]')
     if gvp('columns[6][search][value]'):
-        sqlcrit += " and t.id_source ilike %(id_source)s"
-        params['id_source']='%'+gvp('columns[6][search][value]')+'%'
-    if gvp('columns[8][search][value]').isdigit():
+        sqlcrit += " and t.taxostatus = %(taxostatus)s"
+        params['taxostatus']=gvp('columns[6][search][value]')
+    if gvp('columns[7][search][value]'):
+        sqlcrit += " and t.creator_email ilike %(creator_email)s"
+        params['creator_email']='%'+gvp('columns[7][search][value]')+'%'
+    if gvp('columns[9][search][value]').isdigit():
         sqlcrit += " and lastupdate_datetime like %(lastupdate)s"
-        params['lastupdate']=int(gvp('columns[8][search][value]'))
-    if gvp('columns[9][search][value]'):
+        params['lastupdate']=int(gvp('columns[9][search][value]'))
+    if gvp('columns[10][search][value]'):
         sqlcrit += """ and tree ilike %(tree)s"""
-        params['tree']='%'+gvp('columns[9][search][value]')+'%'
+        params['tree']='%'+gvp('columns[10][search][value]')+'%'
 
-    sqlcount="select count(*) from taxonomy t where 1=1 "
+    sqlcount="select count(*) from taxonomy_worms t where 1=1 "
     if 'tree' in params:
         sqlcount = "select count(*) from ({}) t where 1=1 ".format(sql)
         sql="select t.* from ({}) t where 1=1 ".format(sql) # permet de mettre des critères sur la colonne calculée tree
@@ -118,40 +121,55 @@ def browsetaxoajax():
         orderclause=" order by {} {}".format(int(gvp('order[0][column]'))+1,'desc' if gvp('order[0][dir]')=='desc' else 'asc')
     sql += sqlcrit+orderclause+ (" offset {} limit {}".format(start,length))
     lst = GetAll(sql,params)
-    for lstitem in lst: # Post traitement sur les chaines
-        lstitem['tree']=PackTreeTxt(lstitem['tree'])
-        lstitem['name']=XSSEscape(lstitem['name'])
-        if lstitem['parent_id'] is None:
-            lstitem['parent_id']=""
+    postprocess(lst)
 
     sqlcount +=sqlcrit
     if len(lst)>=length or start!=0:
         recordsFiltered= GetAll(sqlcount,params)[0][0]
     else:
         recordsFiltered=len(lst)
-    nbrtaxon = GetAll("select count(*) from taxonomy")[0][0]
+    nbrtaxon = GetAll("select count(*) from taxonomy_worms")[0][0]
     res={'draw':int(gvp('draw')),'recordsTotal':nbrtaxon,'recordsFiltered':recordsFiltered,'data':lst}
 
     return json.dumps(res)
 
+def postprocess(lst):
+    for lstitem in lst: # Post traitement sur les chaines
+        lineage = lstitem['tree'].split('>')
+        statuses = lstitem['statuses']
+        names = []
+        for l, s in zip(lineage, statuses):
+            if s == 'D':
+                names.append(f"<s>{l}</s>")
+            else:
+                names.append(l)
+        lineage = ">".join(names)
+        lstitem['tree']=PackTreeTxt(lineage)
+        lstitem['name']=XSSEscape(lstitem['name'] or '???')
+        if lstitem['taxostatus'] == "D":
+            lstitem['name'] = "<s>"+lstitem['name']+"</s>"
+        lstitem['name'] += "⇢"+str(lstitem['rename_to']) if lstitem['rename_to'] is not None else ""
+        if lstitem['parent_id'] is None:
+            lstitem['parent_id']=""
+
 @app.route('/browsetaxotsvexport/')
 def browsetaxotsvexport():
-    sql="""select t.id,t.parent_id,t.name,t.taxotype,t.taxostatus
-      ,t.id_source,t.source_url,t.source_desc
+    sql="""select t.id,t.aphia_id,t.parent_id,t.rank,t.name,t.taxotype,t.taxostatus
+      ,t.source_url,t.source_desc
       ,t.creator_email,to_char(t.creation_datetime,'yyyy-mm-dd hh24:mi,ss') creation_datetime
       ,t.id_instance,t.rename_to
       ,to_char(t.lastupdate_datetime,'yyyy-mm-dd hh24:mi:ss') lastupdate_datetime
       ,i.name instance_name,tr.display_name rename_to_name,t.nbrobj,t.nbrobjcum
       ,t.display_name,{}
-    from taxonomy t 
+    from taxonomy_worms t 
     LEFT JOIN ecotaxainst i on t.id_instance=i.id
-    LEFT JOIN taxonomy tr on tr.id=t.rename_to
+    LEFT JOIN taxonomy_worms tr on tr.id=t.rename_to
     {}
     order by 1
     """.format(SQLTreeSelect,SQLTreeJoin)
     lst = GetAll(sql)
     t=[]
-    t.append("id\tparent_id\tname\ttaxotype\ttaxostatus\tid_source\tsource_url\tsource_desc\tcreator_email\tcreation_datetime"
+    t.append("id\taphia_id\tparent_id\trank\tname\ttaxotype\ttaxostatus\tsource_url\tsource_desc\tcreator_email\tcreation_datetime"
              +"\tid_instance\trename_to\tlastupdate_datetime\tinstance_name\trename_to_name\tnbrobj\tnbrobjcum\tdisplay_name\tlineage")
     for l in lst:
         # t.append("{id},{parent_id}".format(l))
@@ -163,14 +181,14 @@ def browsetaxotsvexport():
 def browsetaxoviewpopup(taxoid):
     sql = """select t.*,i.name inst_name,url inst_url,concat(rt.name,'<'||rt2.name,'<'||rt3.name,'<'||rt4.name) rename_to_name
             ,p.name parentname,to_char(t.creation_datetime,'YYYY-MM-DD HH24:MI') creationdatetimefmt,{}
-        from taxonomy t 
+        from taxonomy_worms t 
         {}
         left join ecotaxainst i on i.id=t.id_instance
-        left join taxonomy rt on t.rename_to=rt.id
-        left join taxonomy p on t.parent_id=p.id
-        left join taxonomy rt2 on rt.parent_id=rt2.id
-        left join taxonomy rt3 on rt2.parent_id=rt3.id
-        left join taxonomy rt4 on rt3.parent_id=rt4.id
+        left join taxonomy_worms rt on t.rename_to=rt.id
+        left join taxonomy_worms p on t.parent_id=p.id
+        left join taxonomy_worms rt2 on rt.parent_id=rt2.id
+        left join taxonomy_worms rt3 on rt2.parent_id=rt3.id
+        left join taxonomy_worms rt4 on rt3.parent_id=rt4.id
         where t.id = %(id)s
         """.format(SQLTreeSelect, SQLTreeJoin)
     taxon= GetAll(sql,{'id':taxoid})[0]
@@ -188,11 +206,11 @@ def browsetaxoviewpopup(taxoid):
 def browsetaxoeditpopup(taxoid):
     sql = """select t.*,i.name inst_name,url inst_url,concat(rt.display_name) rename_to_name
             ,p.display_name parentname,to_char(t.creation_datetime,'YYYY-MM-DD HH24:MI') creationdatetimefmt,{}
-        from taxonomy t 
+        from taxonomy_worms t 
         {}
         left join ecotaxainst i on i.id=t.id_instance
-        left join taxonomy rt on t.rename_to=rt.id
-        left join taxonomy p on t.parent_id=p.id
+        left join taxonomy_worms rt on t.rename_to=rt.id
+        left join taxonomy_worms p on t.parent_id=p.id
         where t.id = %(id)s
         """.format(SQLTreeSelect, SQLTreeJoin)
     taxon= GetAll(sql,{'id':taxoid})[0]
@@ -218,9 +236,10 @@ def browsetaxosavepopup():
             raise Exception("Taxon missing")
         taxon.source_url=gvp('source_url')
         taxon.name = gvp('name')
+        taxon.aphia_id = gvp('aphia_id')
         taxon.parent_id = gvp('parent_id')
+        taxon.rank = gvp('rank')
         taxon.taxotype = gvp('taxotype')
-        taxon.id_source = gvp('id_source')
         taxon.source_url = gvp('source_url')
         taxon.source_desc = gvp('source_desc')
         taxon.creator_email = gvp('creator_email')
@@ -228,7 +247,7 @@ def browsetaxosavepopup():
         taxon.rename_to = gvp('rename_to') or None
         db.session.commit()
         ComputeDisplayName([taxonid])
-        database.ExecSQL("UPDATE public.taxonomy t SET lastupdate_datetime=to_timestamp(%s,'YYYY-MM-DD HH24:MI:SS') WHERE id=%s"
+        database.ExecSQL("UPDATE public.taxonomy_worms t SET lastupdate_datetime=to_timestamp(%s,'YYYY-MM-DD HH24:MI:SS') WHERE id=%s"
                          , [datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),taxonid])
 
         # txt=FormatSuccess("POST = {}",txt)

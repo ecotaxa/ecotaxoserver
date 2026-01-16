@@ -29,7 +29,7 @@
   <tr>  <th>Lineage</th><td colspan="5">{{ taxon.tree }}</td></tr>
 
   <tr>
-    <th>Source ID</th><td>{{ M.InputText('id_source', taxon.id_source ,extrataginfo="class=form-control maxlength=20 style='width:100px'"|safe)  }} </td>
+    <th>Aphia ID</th><td>{{ M.InputText('aphia_id', taxon.aphia_id ,extrataginfo="class=form-control maxlength=20 style='width:100px'"|safe)  }} </td>
     <th>Source URL</th><td colspan="3">
         {{ M.InputText('source_url', taxon.source_url,extrataginfo="class=form-control maxlength=200  data-parsley-type=url")  }}    </td></tr>
   <tr><th>Source Desc</th><td colspan="5">

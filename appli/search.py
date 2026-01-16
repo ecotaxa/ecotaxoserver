@@ -21,11 +21,11 @@ def searchtaxo():
             ExtraWhere +="\n and ("
             # SQLI insensible, protégé par quotedstring
             ExtraWhere +=' or '.join(("lower(p{0}.name) like {1}".format(i,t) for i in range(1,6)))+")"
-        ExtraFrom="\n".join(["left join taxonomy p{0} on p{1}.parent_id=p{0}.id".format(i,i-1) for i in range(2,6)])
+        ExtraFrom="\n".join(["left join taxonomy_worms p{0} on p{1}.parent_id=p{0}.id".format(i,i-1) for i in range(2,6)])
 
     sql="""SELECT tf.id, tf.display_name as name
-          ,0 FROM taxonomy tf
-          left join taxonomy p1 on tf.parent_id=p1.id
+          ,0 FROM taxonomy_worms tf
+          left join taxonomy_worms p1 on tf.parent_id=p1.id
           {0}
           WHERE  lower(tf.name) LIKE %(term)s  {1}
           order by tf.name limit 200""".format(ExtraFrom,ExtraWhere)
