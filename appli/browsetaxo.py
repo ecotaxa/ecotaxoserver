@@ -16,9 +16,9 @@ from flask_security.decorators import roles_accepted,login_required
 # ,concat(t14.name||'>',t13.name||'>',t12.name||'>',t11.name||'>',t10.name||'>',t9.name||'>',t8.name||'>',t7.name||'>',
 #      t6.name||'>',t5.name||'>',t4.name||'>',t3.name||'>',t2.name||'>',t1.name||'>',t.name) tree"""
 
-SQLTreeSelect="""concat(t14.name||'>',t13.name||'>',t12.name||'>',t11.name||'>',t10.name||'>',t9.name||'>',t8.name||'>',t7.name||'>',
+SQLTreeSelect="""concat(t17.name||'>',t16.name||'>',t15.name||'>',t14.name||'>',t13.name||'>',t12.name||'>',t11.name||'>',t10.name||'>',t9.name||'>',t8.name||'>',t7.name||'>',
      t6.name||'>',t5.name||'>',t4.name||'>',t3.name||'>',t2.name||'>',t1.name||'>',t.name) tree"""
-SQLStatusSelect="""concat(t14.taxostatus,t13.taxostatus,t12.taxostatus,t11.taxostatus,t10.taxostatus,t9.taxostatus,t8.taxostatus,t7.taxostatus,
+SQLStatusSelect="""concat(t17.taxostatus,t16.taxostatus,t15.taxostatus,t14.taxostatus,t13.taxostatus,t12.taxostatus,t11.taxostatus,t10.taxostatus,t9.taxostatus,t8.taxostatus,t7.taxostatus,
      t6.taxostatus,t5.taxostatus,t4.taxostatus,t3.taxostatus,t2.taxostatus,t1.taxostatus,t.taxostatus) statuses"""
 SQLTreeJoin="""left join taxonomy_worms t1 on t.parent_id=t1.id
       left join taxonomy_worms t2 on t1.parent_id=t2.id
@@ -33,7 +33,10 @@ SQLTreeJoin="""left join taxonomy_worms t1 on t.parent_id=t1.id
       left join taxonomy_worms t11 on t10.parent_id=t11.id
       left join taxonomy_worms t12 on t11.parent_id=t12.id
       left join taxonomy_worms t13 on t12.parent_id=t13.id
-      left join taxonomy_worms t14 on t13.parent_id=t14.id"""
+      left join taxonomy_worms t14 on t13.parent_id=t14.id
+      left join taxonomy_worms t15 on t14.parent_id=t15.id
+      left join taxonomy_worms t16 on t15.parent_id=t16.id
+      left join taxonomy_worms t17 on t16.parent_id=t17.id"""
 
 
 PackTreeTxtPattern= re.compile(r"^([^>]+>)(.*)((?:>.[^>]+){3})$")
@@ -236,9 +239,9 @@ def browsetaxosavepopup():
             raise Exception("Taxon missing")
         taxon.source_url=gvp('source_url')
         taxon.name = gvp('name')
-        taxon.aphia_id = gvp('aphia_id')
+        # taxon.aphia_id = gvp('aphia_id')
         taxon.parent_id = gvp('parent_id')
-        taxon.rank = gvp('rank')
+        # taxon.rank = gvp('rank')
         taxon.taxotype = gvp('taxotype')
         taxon.source_url = gvp('source_url')
         taxon.source_desc = gvp('source_desc')
