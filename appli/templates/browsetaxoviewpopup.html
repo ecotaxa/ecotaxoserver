@@ -18,14 +18,14 @@
 
   <tr>
     <th>Aphia ID</th><td>{{ taxon.aphia_id or ''}}</td>
-    <th>Source URL</th><td colspan="3">{{ (('<a href='|safe+(taxon.source_url|tojson)+'>'|safe) +taxon.source_url+'</a>'|safe) if taxon.source_url else '' }}</td></tr>
-  <tr><th>Source Desc</th><td colspan="5">{{ M.NL2BR (taxon.source_desc) }}  </td></tr>
+    <th>Source URL</th><td colspan="3">{% if taxon.source_url %}<a href="{{ taxon.source_url }}">{{ taxon.source_url }}</a>{% endif %}</td></tr>
+  <tr><th>Source Desc</th><td colspan="5">{{ (taxon.source_desc or '')|nl2br|safe }}  </td></tr>
   <tr>
     <th>Creation date</th><td>{{ taxon.creationdatetimefmt or ''}}</td>
-    <th>By</th><td colspan="3">{{ ('<a href="mailto:'+taxon.creator_email+'">'+taxon.creator_email+'</a>')|safe if taxon.creator_email else '' }}</td></tr>
+    <th>By</th><td colspan="3">{% if taxon.creator_email %}<a href="mailto:{{ taxon.creator_email }}">{{ taxon.creator_email }}</a>{% endif %}</td></tr>
   <tr>
     <th>Last update</th><td>{{ taxon.lastupdate_datetime or ''}}</td>
-    <th>From instance</th><td colspan="3">{{ taxon.id_instance or ''}} {{ ('<a href="'+taxon.inst_url+'">'+taxon.inst_name+'</a>')|safe if taxon.inst_name else '' }}</td></tr>
+    <th>From instance</th><td colspan="3">{{ taxon.id_instance or ''}} {% if taxon.inst_name %}<a href="{{ taxon.inst_url }}">{{ taxon.inst_name }}</a>{% endif %}</td></tr>
   <tr>
     <th>Status</th><td>{{ g.TaxoStatus[taxon.taxostatus] or ''}}</td>
     <th>Rename To</th><td colspan="3">{{ taxon.rename_to or ''}} {{ taxon.rename_to_name or ''}} </td></tr>
