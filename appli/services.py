@@ -151,9 +151,10 @@ def get_lineage(res:List[Dict])->List[Dict]:
             dict({"aphia_id": r["AphiaID"], "name": r["scientificname"], "rank": r["rank"], "status": r["status"],
                   "lineage": flipped}))
     for r in res:
-        # if (r["valid_AphiaID"] != r["AphiaID"]):
-        #if r["status"] != WORMS_STATUS_ACCEPTED or (r["valid_AphiaID"] != r["AphiaID"]):
-            # continue
+        # if r["status"] != WORMS_STATUS_ACCEPTED or (r["valid_AphiaID"] != r["AphiaID"]):
+        if r["valid_AphiaID"] is not None and r["valid_AphiaID"] != r["AphiaID"]:
+            # There is a valid (better) alternative
+            continue
         getlineage(r)
     return taxons
 
