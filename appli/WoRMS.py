@@ -15,7 +15,7 @@ class WoRMSFinder(object):
     BASE_URL = "https://www.marinespecies.org/rest/"
     the_session = None
 
-    WoRMS_URL_AphiaRecordByName = "AphiaRecordsByName/%s?marine_only=true"
+    WoRMS_URL_AphiaRecordByName = "AphiaRecordsByName/%s?marine_only=false"
     WoRMS_URL_AphiaRecordsByIds ="AphiaRecordsByAphiaIDs?aphiaids=%s"
     WoRMS_URL_ClassifByAphia = "AphiaClassificationByAphiaID/%d"
     WoRMS_URL_ClassifChildrenByAphia = "AphiaChildrenByAphiaID/%d?marine_only=false&offset=%d"
